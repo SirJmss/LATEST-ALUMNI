@@ -1139,39 +1139,41 @@ export const AuthPage: React.FC<AuthPageProps> = ({
               </div>
             ) : (
               <>
-                {/* ROLE SWITCHER TABS: ALUMNI VS EMPLOYER PARTNER */}
-                <div className="grid grid-cols-2 gap-1.5 p-1.5 bg-stone-200/80 rounded-2xl mb-5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRegistrationType('alumni');
-                      setEmployerError('');
-                    }}
-                    className={`py-2.5 px-3 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                      registrationType === 'alumni'
-                        ? 'bg-white text-stone-900 shadow-sm border border-stone-200/80'
-                        : 'text-stone-600 hover:text-stone-900'
-                    }`}
-                  >
-                    <GraduationCap className={`w-4 h-4 ${registrationType === 'alumni' ? 'text-[#8B181B]' : 'text-stone-400'}`} />
-                    <span>Alumni / Graduate</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRegistrationType('employer');
-                      setScreeningError('');
-                    }}
-                    className={`py-2.5 px-3 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                      registrationType === 'employer'
-                        ? 'bg-white text-stone-900 shadow-sm border border-stone-200/80'
-                        : 'text-stone-600 hover:text-stone-900'
-                    }`}
-                  >
-                    <Building2 className={`w-4 h-4 ${registrationType === 'employer' ? 'text-[#8B181B]' : 'text-stone-400'}`} />
-                    <span>Employer / Partner</span>
-                  </button>
-                </div>
+                {/* ROLE SWITCHER TABS: ALUMNI VS EMPLOYER PARTNER (Only visible at initial entry / Step 1) */}
+                {(step === 1 || registrationType === 'employer') && (
+                  <div className="grid grid-cols-2 gap-1.5 p-1.5 bg-stone-200/80 rounded-2xl mb-5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRegistrationType('alumni');
+                        setEmployerError('');
+                      }}
+                      className={`py-2.5 px-3 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                        registrationType === 'alumni'
+                          ? 'bg-white text-stone-900 shadow-sm border border-stone-200/80'
+                          : 'text-stone-600 hover:text-stone-900'
+                      }`}
+                    >
+                      <GraduationCap className={`w-4 h-4 ${registrationType === 'alumni' ? 'text-[#8B181B]' : 'text-stone-400'}`} />
+                      <span>Alumni / Graduate</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRegistrationType('employer');
+                        setScreeningError('');
+                      }}
+                      className={`py-2.5 px-3 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                        registrationType === 'employer'
+                          ? 'bg-white text-stone-900 shadow-sm border border-stone-200/80'
+                          : 'text-stone-600 hover:text-stone-900'
+                      }`}
+                    >
+                      <Building2 className={`w-4 h-4 ${registrationType === 'employer' ? 'text-[#8B181B]' : 'text-stone-400'}`} />
+                      <span>Employer / Partner</span>
+                    </button>
+                  </div>
+                )}
 
                 {registrationType === 'employer' ? (
                   <div>
@@ -1431,16 +1433,18 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                   </div>
                 ) : (
                   <>
-                    {/* NOTICE BANNER: ALUMNI-ONLY REGISTRATION */}
-                <div className="mb-5 p-3 rounded-xl bg-amber-50/90 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
-                  <GraduationCap className="w-4 h-4 text-[#8B181B] shrink-0 mt-0.5" />
-                  <div className="leading-snug">
-                    <span className="font-bold">Official Cecilian Alumni Registration:</span>{' '}
-                    <span>
-                      Exclusively for graduates and alumni of St. Cecilia’s College. Faculty, staff, and administrators receive pre-configured credentials directly from the Registrar and IT Services.
-                    </span>
-                  </div>
-                </div>
+                    {/* NOTICE BANNER: ALUMNI-ONLY REGISTRATION (Only on Step 1) */}
+                    {step === 1 && (
+                      <div className="mb-5 p-3 rounded-xl bg-amber-50/90 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
+                        <GraduationCap className="w-4 h-4 text-[#8B181B] shrink-0 mt-0.5" />
+                        <div className="leading-snug">
+                          <span className="font-bold">Official Cecilian Alumni Registration:</span>{' '}
+                          <span>
+                            Exclusively for graduates and alumni of St. Cecilia’s College. Faculty, staff, and administrators receive pre-configured credentials directly from the Registrar and IT Services.
+                          </span>
+                        </div>
+                      </div>
+                    )}
 
                 {/* STEP 1: INITIAL ACADEMIC SCREENING VIA STUDENT ID & ZERO-LEAK OWNERSHIP CHALLENGE */}
                 {step === 1 && (

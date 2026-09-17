@@ -239,23 +239,6 @@ export const AdminPanelView: React.FC = () => {
             )}
           </div>
         </div>
-
-        {/* Firestore Database Instance Info Banner */}
-        <div className="mt-4 pt-3 border-t border-stone-200/80 flex flex-wrap items-center justify-between gap-2 text-[11px] text-stone-600 bg-stone-50/70 p-2.5 rounded-xl border">
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 text-emerald-700 font-semibold">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <Database className="w-3.5 h-3.5" />
-              <span>Connected Firestore Database:</span>
-            </div>
-            <code className="bg-white px-2 py-0.5 rounded border border-stone-200 font-mono text-[10px] text-stone-800">
-              ai-studio-latessssytttttt-cb0762a2-2240-4186-978b-3f200ac1b272
-            </code>
-          </div>
-          <div className="text-stone-500">
-            Select this database instance in the Firebase Console database dropdown to inspect live collections.
-          </div>
-        </div>
       </div>
 
       {/* Two-Column Administration Layout: Sidebar Navigation + Center Display */}
