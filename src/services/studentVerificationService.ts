@@ -482,6 +482,159 @@ function normalizeName(name: string): string {
 }
 
 /**
+ * Generates an official St. Cecilia's College Alumni ID:
+ * Format: SCC-ALUM-YYYY-XXXX (where YYYY is graduation batch, XXXX is 4-digit unique sequence)
+ * This is permanently distinct from the pre-graduation Student ID.
+ */
+export function generateAlumniId(batchYear: string = '2024', studentId?: string, seed?: string): string {
+  const cleanBatch = (batchYear || '2024').replace(/[^0-9]/g, '').slice(-4) || '2024';
+  let seq = '';
+  if (studentId) {
+    const digits = studentId.replace(/[^0-9]/g, '');
+    if (digits.length >= 4) {
+      seq = digits.slice(-4);
+    }
+  }
+  if (!seq && seed) {
+    const seedDigits = seed.replace(/[^0-9]/g, '');
+    if (seedDigits.length >= 4) {
+      seq = seedDigits.slice(-4);
+    }
+  }
+  if (!seq) {
+    seq = Math.floor(1000 + Math.random() * 9000).toString();
+  }
+  return `SCC-ALUM-${cleanBatch}-${seq}`;
+}
+
+export interface StrictRegistrationValidationResult {
+  isValid: boolean;
+  errorCode?: 'MISSING_FIELDS' | 'ID_NOT_FOUND' | 'NAME_MISMATCH' | 'LAST_NAME_MISMATCH' | 'BATCH_MISMATCH' | 'COURSE_MISMATCH' | 'ALREADY_REGISTERED' | 'UNVERIFIED_STATUS';
+  errorMessage?: string;
+  matchedRecord?: StudentVerificationRecord;
+}
+
+/**
+ * Strict Zero-Tolerance Registration Validator
+ * Enforces that Student ID, full name (including any second/middle name),
+ * last name, batch year, and degree program match the registrar record EXACTLY.
+ * If even one field does not match, registration to Step 2 is strictly blocked.
+ */
+export function validateStudentRegistrationStrict(
+  params: {
+    studentId: string;
+    firstName: string;
+    lastName: string;
+    batch: string;
+    course: string;
+  },
+  existingUsers: any[] = []
+): StrictRegistrationValidationResult {
+  const normId = normalizeStudentId(params.studentId).toUpperCase();
+  const trimmedFirst = params.firstName.trim();
+  const trimmedLast = params.lastName.trim();
+  const trimmedBatch = params.batch.trim();
+  const trimmedCourse = params.course.trim();
+
+  if (!normId || !trimmedFirst || !trimmedLast || !trimmedBatch || !trimmedCourse) {
+    return {
+      isValid: false,
+      errorCode: 'MISSING_FIELDS',
+      errorMessage: 'All verification fields are required: Student ID Number, First & Middle/Second Name, Last Name, Graduating Batch, and Degree Program.'
+    };
+  }
+
+  const records = getRegistrarRecords();
+  const record = records.find(
+    (r) => normalizeStudentId(r.studentId).toUpperCase() === normId
+  );
+
+  if (!record) {
+    return {
+      isValid: false,
+      errorCode: 'ID_NOT_FOUND',
+      errorMessage: `Security Verification Failed: Student ID "${params.studentId}" was not found in the official St. Cecilia’s College registrar masterlist. Please check for typos or contact the Registrar.`
+    };
+  }
+
+  // Check if unverified status in registry
+  const isUnverified =
+    (record.status as string)?.toLowerCase() === 'unverified' ||
+    record.verification_status === 'unverified';
+  if (isUnverified) {
+    return {
+      isValid: false,
+      errorCode: 'UNVERIFIED_STATUS',
+      errorMessage: `Student ID "${params.studentId}" has an unverified or withheld record in the registrar archive. Registration cannot proceed.`
+    };
+  }
+
+  // Check if duplicate (already registered)
+  const alreadyRegisteredInUsers = existingUsers.some(
+    (u) =>
+      u.studentId &&
+      normalizeStudentId(u.studentId).toUpperCase() === normId
+  );
+  if (record.isRegistered || alreadyRegisteredInUsers) {
+    return {
+      isValid: false,
+      errorCode: 'ALREADY_REGISTERED',
+      errorMessage: `Student ID "${params.studentId}" is already registered and activated in the alumni network. Duplicate registrations are prohibited. Please sign in with your credentials.`
+    };
+  }
+
+  // Strict Name Validation:
+  // Full entered name:
+  const enteredFullName = normalizeName(`${trimmedFirst} ${trimmedLast}`);
+  const recordFullName = normalizeName(record.fullName);
+
+  if (enteredFullName !== recordFullName) {
+    return {
+      isValid: false,
+      errorCode: 'NAME_MISMATCH',
+      errorMessage: `Security Verification Failed: The student name provided does not match the official registrar record for Student ID "${record.studentId}". Every word (first name, second/middle name, and surname) must match the registrar masterlist record exactly.`
+    };
+  }
+
+  // Strict Last Name Check:
+  const enteredLastNorm = normalizeName(trimmedLast);
+  if (!recordFullName.endsWith(enteredLastNorm)) {
+    return {
+      isValid: false,
+      errorCode: 'LAST_NAME_MISMATCH',
+      errorMessage: `Security Verification Failed: Last name "${trimmedLast}" does not match the official surname on file for Student ID "${record.studentId}".`
+    };
+  }
+
+  // Strict Batch Validation:
+  const recordBatch = (record.batchYear || '').trim();
+  if (recordBatch !== trimmedBatch) {
+    return {
+      isValid: false,
+      errorCode: 'BATCH_MISMATCH',
+      errorMessage: `Security Verification Failed: Graduating batch (Class of ${trimmedBatch}) does not match the official registrar record for Student ID "${record.studentId}".`
+    };
+  }
+
+  // Strict Degree Program Validation:
+  const normRecordCourse = (record.course || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const normEnteredCourse = trimmedCourse.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  if (normRecordCourse !== normEnteredCourse) {
+    return {
+      isValid: false,
+      errorCode: 'COURSE_MISMATCH',
+      errorMessage: `Security Verification Failed: Degree program "${trimmedCourse}" does not match the official registered program for Student ID "${record.studentId}".`
+    };
+  }
+
+  return {
+    isValid: true,
+    matchedRecord: record
+  };
+}
+
+/**
  * Registry Matcher Engine:
  * Compares applicant details against the uploaded CSV/Excel masterlist.
  * If details match the registrar dataset, returns a confirmed match allowing instant auto-registration.
@@ -538,28 +691,19 @@ export function findRegistryMatch(query: {
       const qNameNorm = queryName ? normalizeName(queryName) : '';
 
       const hasName = Boolean(qNameNorm && qNameNorm.length >= 2);
-      const nameParts = qNameNorm.split(' ').filter((p) => p.length >= 2);
-      const nameMatches =
-        hasName &&
-        (recordNameNorm === qNameNorm ||
-          recordNameNorm.includes(qNameNorm) ||
-          qNameNorm.includes(recordNameNorm) ||
-          nameParts.some((part) => recordNameNorm.includes(part)));
+      // Zero-tolerance exact match for name (letter for letter, including second name)
+      const nameMatches = hasName && recordNameNorm === qNameNorm;
 
       const hasBatch = Boolean(queryBatch && queryBatch.trim().length >= 4);
-      const batchMatches = hasBatch && idMatch.batchYear === queryBatch?.trim();
+      const batchMatches = hasBatch && idMatch.batchYear.trim() === queryBatch?.trim();
 
-      // Normalize courses for comparison (e.g. BSIT vs B.S. Information Technology)
+      // Normalize courses for comparison (exact match)
       const hasCourse = Boolean(query.course && query.course.trim().length >= 2);
       let courseMatches = true;
       if (hasCourse && idMatch.course) {
         const c1 = query.course!.toLowerCase().replace(/[^a-z0-9]/g, '');
         const c2 = idMatch.course.toLowerCase().replace(/[^a-z0-9]/g, '');
-        courseMatches = c1.includes(c2) || c2.includes(c1) ||
-          (c1.includes('it') && c2.includes('informationtechnology')) ||
-          (c1.includes('ba') && c2.includes('business')) ||
-          (c1.includes('cpe') && c2.includes('computerengineering')) ||
-          (c1.includes('hm') && c2.includes('hospitality'));
+        courseMatches = c1 === c2;
       }
 
       // If user hasn't provided their name or batch yet, prompt them without disclosing the stored record
@@ -568,19 +712,19 @@ export function findRegistryMatch(query: {
           isMatched: false,
           confidence: 0,
           matchReasons: [],
-          message: 'Security Notice: To protect student privacy and prevent unauthorized account claims, please enter the registered Full Name and Graduating Batch Year for this Student ID.',
+          message: 'Security Notice: To protect student privacy and prevent unauthorized account claims, please enter the registered Full Name (including second/middle name) and Graduating Batch Year for this Student ID.',
           canBypassVerification: false
         };
       }
 
-      // If claimant entered details, verify that both Name and Batch match the stored record
+      // If claimant entered details, verify that Name, Batch, and Degree program match the stored record exactly
       if (!nameMatches || !batchMatches || !courseMatches) {
         return {
           isMatched: false,
           confidence: 0,
           matchReasons: [],
           // Strictly DO NOT reveal the actual name, batch, or degree
-          message: 'Security Verification Failed: The Name, Graduating Batch, or Degree Program you entered does not match the official registrar record for this Student ID. Details on file cannot be disclosed for identity protection.',
+          message: 'Security Verification Failed: The Name (including second/middle name), Graduating Batch, or Degree Program you entered does not match the official registrar record for this Student ID.',
           canBypassVerification: false
         };
       }

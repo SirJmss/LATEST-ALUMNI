@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { UserProfile } from '../../types';
 import { useAlumni } from '../../context/AlumniContext';
+import { generateAlumniId } from '../../services/studentVerificationService';
 
 interface DigitalAlumniCardProps {
   user?: UserProfile;
@@ -33,6 +34,11 @@ export const DigitalAlumniCard: React.FC<DigitalAlumniCardProps> = ({ user: prop
   if (!user) return null;
 
   const getFormattedId = (u: UserProfile) => {
+    // Official Alumni have their own distinct Alumni ID (not the student ID)
+    if (u.role === 'alumni') {
+      if (u.alumniId) return u.alumniId;
+      return generateAlumniId(u.batch || '2024', u.studentId, u.uid);
+    }
     if (u.studentId) {
       const clean = u.studentId.trim();
       return clean.startsWith('SCC-')
@@ -50,7 +56,7 @@ export const DigitalAlumniCard: React.FC<DigitalAlumniCardProps> = ({ user: prop
     if (u.role === 'staff') return `SCC-STAFF-${u.uid.slice(-3).toUpperCase()}`;
     if (u.role === 'employer') return `SCC-EMP-${u.uid.slice(-3).toUpperCase()}`;
     if (u.role === 'moderator') return `SCC-MOD-${u.uid.slice(-3).toUpperCase()}`;
-    return `SCC-${u.batch || '2024'}-${u.uid.slice(-4).toUpperCase()}`;
+    return `SCC-ALUM-${u.batch || '2024'}-${u.uid.slice(-4).toUpperCase()}`;
   };
 
   const formattedId = getFormattedId(user);
@@ -149,20 +155,27 @@ export const DigitalAlumniCard: React.FC<DigitalAlumniCardProps> = ({ user: prop
       </div>
 
       {/* Card Number */}
-      <div className="relative z-10 my-0.5 sm:my-1 flex items-center justify-between gap-1">
-        <span className="font-mono text-xs sm:text-base md:text-lg tracking-wider sm:tracking-widest text-amber-100 font-bold drop-shadow-sm truncate">
-          {maskedId}
-        </span>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowFullNumber(!showFullNumber);
-          }}
-          className="text-[8px] sm:text-[10px] uppercase font-bold tracking-wider px-1.5 sm:px-2 py-0.5 rounded bg-black/40 hover:bg-black/60 text-amber-200 border border-amber-400/20 transition-colors shrink-0 cursor-pointer"
-        >
-          {showFullNumber ? 'Hide' : 'Reveal'}
-        </button>
+      <div className="relative z-10 my-0.5 sm:my-1">
+        <div className="flex items-center justify-between gap-1 mb-0.5">
+          <span className="text-[8px] sm:text-[9px] uppercase tracking-widest text-amber-300 font-mono font-bold">
+            {user.role === 'alumni' ? 'OFFICIAL ALUMNI ID' : 'DIGITAL PASS ID'}
+          </span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowFullNumber(!showFullNumber);
+            }}
+            className="text-[8px] sm:text-[10px] uppercase font-bold tracking-wider px-1.5 sm:px-2 py-0.5 rounded bg-black/40 hover:bg-black/60 text-amber-200 border border-amber-400/20 transition-colors shrink-0 cursor-pointer"
+          >
+            {showFullNumber ? 'Hide' : 'Reveal'}
+          </button>
+        </div>
+        <div className="flex items-center justify-between gap-1">
+          <span className="font-mono text-xs sm:text-base md:text-lg tracking-wider sm:tracking-widest text-amber-100 font-bold drop-shadow-sm truncate">
+            {maskedId}
+          </span>
+        </div>
       </div>
 
       {/* Card Footer: Member Name, Program & Batch */}
@@ -213,6 +226,11 @@ export const DigitalAlumniCard: React.FC<DigitalAlumniCardProps> = ({ user: prop
         <div className="p-1.5 sm:p-2 bg-black/40 rounded-lg border border-amber-500/20 flex items-center justify-between gap-2">
           <div className="space-y-0.5 text-[8px] sm:text-[9px] text-stone-300 min-w-0">
             <p className="font-semibold text-amber-300 truncate">OFFICIAL INSTITUTIONAL IDENTIFICATION</p>
+            {user.studentId && (
+              <p className="text-[7.5px] sm:text-[8.5px] font-mono text-amber-200/90 truncate">
+                Academic Student ID: <span className="font-bold text-white">{user.studentId}</span>
+              </p>
+            )}
             <p className="text-[7px] sm:text-[8px] text-stone-400 leading-tight hidden min-[360px]:block">
               Property of St. Cecilia's College. Valid for campus entry, library access, registrar services, and certified privileges.
             </p>

@@ -18,6 +18,7 @@ import {
   BarChart3,
   Sparkles,
   ShieldAlert,
+  Lock,
   Upload,
   Image as ImageIcon,
   UserPlus,
@@ -27,7 +28,10 @@ import {
   FileSpreadsheet,
   AlertTriangle,
   FileText,
-  Landmark
+  Landmark,
+  Database,
+  RefreshCw,
+  Cloud
 } from 'lucide-react';
 import { useAlumni } from '../../context/AlumniContext';
 import { UserRole } from '../../types';
@@ -58,7 +62,9 @@ export const AdminPanelView: React.FC = () => {
     deleteGalleryItem,
     automationJobs,
     auditLogs,
-    opportunities
+    opportunities,
+    syncAllDataToCloud,
+    isFirestoreSyncing
   } = useAlumni();
 
   const [activeTab, setActiveTab] = useState<'users' | 'registry' | 'conflicts' | 'employers' | 'jobs' | 'audit' | 'automations' | 'metrics' | 'milestones' | 'chapters' | 'gallery'>('users');
@@ -211,15 +217,44 @@ export const AdminPanelView: React.FC = () => {
             </div>
           </div>
 
-          {permissions.canAssignRoles && (
+          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 flex-wrap">
             <button
-              onClick={() => setShowCreateUserModal(true)}
-              className="flex items-center gap-1.5 px-4 py-2 bg-[#991B1B] hover:bg-[#7F1D1D] text-white rounded-xl text-xs font-bold shadow-xs transition-colors self-start sm:self-auto shrink-0"
+              onClick={() => syncAllDataToCloud()}
+              disabled={isFirestoreSyncing}
+              title="Push all local alumni records, events, announcements, jobs, and student registry directly to Firestore Cloud Database"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-stone-900 hover:bg-black text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
             >
-              <UserPlus className="w-4 h-4" />
-              <span>Provision Account</span>
+              <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${isFirestoreSyncing ? 'animate-spin' : ''}`} />
+              <span>{isFirestoreSyncing ? 'Pushing to Firestore...' : 'Sync to Firestore'}</span>
             </button>
-          )}
+
+            {permissions.canAssignRoles && (
+              <button
+                onClick={() => setShowCreateUserModal(true)}
+                className="flex items-center gap-1.5 px-4 py-2 bg-[#991B1B] hover:bg-[#7F1D1D] text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>Provision Account</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Firestore Database Instance Info Banner */}
+        <div className="mt-4 pt-3 border-t border-stone-200/80 flex flex-wrap items-center justify-between gap-2 text-[11px] text-stone-600 bg-stone-50/70 p-2.5 rounded-xl border">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 text-emerald-700 font-semibold">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <Database className="w-3.5 h-3.5" />
+              <span>Connected Firestore Database:</span>
+            </div>
+            <code className="bg-white px-2 py-0.5 rounded border border-stone-200 font-mono text-[10px] text-stone-800">
+              ai-studio-latessssytttttt-cb0762a2-2240-4186-978b-3f200ac1b272
+            </code>
+          </div>
+          <div className="text-stone-500">
+            Select this database instance in the Firebase Console database dropdown to inspect live collections.
+          </div>
         </div>
       </div>
 
@@ -755,23 +790,13 @@ export const AdminPanelView: React.FC = () => {
                       </td>
 
                       <td className="px-4 py-3">
-                        {permissions.canAssignRoles ? (
-                          <select
-                            value={u.role}
-                            onChange={(e) => setUserRole(u.uid, e.target.value as UserRole)}
-                            className="px-2 py-1 bg-white border border-stone-300 rounded text-xs uppercase font-semibold text-stone-700 focus:ring-1 focus:ring-purple-500"
-                          >
-                            <option value="alumni">alumni</option>
-                            <option value="admin">admin</option>
-                            <option value="registrar">registrar</option>
-                            <option value="staff">staff</option>
-                            <option value="moderator">moderator</option>
-                          </select>
-                        ) : (
-                          <span className="uppercase text-[10px] font-bold px-2 py-0.5 rounded bg-stone-100 text-stone-700">
-                            {u.role}
-                          </span>
-                        )}
+                        <span
+                          className="inline-flex items-center gap-1.5 uppercase text-[10px] font-bold px-2.5 py-1 rounded-md bg-stone-100 text-stone-700 border border-stone-200 select-none shadow-2xs"
+                          title="Assigned roles are permanent and immutable. Even administrators cannot modify user roles."
+                        >
+                          <Lock className="w-3 h-3 text-stone-400" />
+                          {u.role}
+                        </span>
                       </td>
 
                       <td className="px-4 py-3 text-right space-x-2">

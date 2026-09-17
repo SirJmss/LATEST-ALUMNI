@@ -8,6 +8,11 @@ import {
   GraduationCap,
   Briefcase,
   Building,
+  Building2,
+  Globe,
+  MapPin,
+  Phone,
+  User,
   Shield,
   ShieldCheck,
   UserCheck,
@@ -26,19 +31,22 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import { useAlumni } from '../../context/AlumniContext';
-import { UserRole, UserProfile, StudentVerificationRecord } from '../../types';
+import { UserRole, UserProfile, StudentVerificationRecord, OFFICIAL_DEGREE_PROGRAMS } from '../../types';
 import { ForgotPasswordModal } from './ForgotPasswordModal';
 import {
   verifyStudentRecord,
   findRegistryMatch,
   markRegistryRecordAsRegistered,
   getRegistrarRecords,
-  isValidStudentIdPattern
+  isValidStudentIdPattern,
+  validateStudentRegistrationStrict,
+  generateAlumniId
 } from '../../services/studentVerificationService';
 import { getCentenaryBatchYears } from '../../services/longevityService';
 
 interface AuthPageProps {
   initialMode?: 'login' | 'register' | 'forgot';
+  initialRole?: 'alumni' | 'employer';
   onLoginSuccess?: (role: string) => void;
   onBackToApp?: () => void;
 }
@@ -65,6 +73,7 @@ const formatSecondsToMMSS = (totalSeconds: number): string => {
 
 export const AuthPage: React.FC<AuthPageProps> = ({
   initialMode = 'login',
+  initialRole = 'alumni',
   onLoginSuccess,
   onBackToApp
 }) => {
@@ -171,7 +180,28 @@ export const AuthPage: React.FC<AuthPageProps> = ({
 
   // Registration multi-step state (1: Initial Student ID Screening, 2: Account & Profile, 3: Review & Honor Pledge)
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const selectedRole: UserRole = 'alumni'; // Strictly alumni-only registration flow
+  const [registrationType, setRegistrationType] = useState<'alumni' | 'employer'>(initialRole);
+
+  useEffect(() => {
+    if (initialRole) {
+      setRegistrationType(initialRole);
+    }
+  }, [initialRole]);
+
+  // Employer Registration State
+  const [companyName, setCompanyName] = useState('');
+  const [companyIndustry, setCompanyIndustry] = useState('Information Technology & Software');
+  const [companyWebsite, setCompanyWebsite] = useState('');
+  const [companyAddress, setCompanyAddress] = useState('Cebu City, Philippines');
+  const [employerContactPerson, setEmployerContactPerson] = useState('');
+  const [employerEmail, setEmployerEmail] = useState('');
+  const [employerPhone, setEmployerPhone] = useState('');
+  const [employerPassword, setEmployerPassword] = useState('');
+  const [employerConfirmPassword, setEmployerConfirmPassword] = useState('');
+  const [showEmployerPassword, setShowEmployerPassword] = useState(false);
+  const [showEmployerConfirmPassword, setShowEmployerConfirmPassword] = useState(false);
+  const [employerError, setEmployerError] = useState('');
+  const [isSubmittingEmployer, setIsSubmittingEmployer] = useState(false);
 
   // Step 1: Initial Student ID Screening
   const [studentId, setStudentId] = useState('');
@@ -201,7 +231,24 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   // 100-Year Centenary batches (from 1968 to 50 years into the future)
   const centenaryBatches = React.useMemo(() => getCentenaryBatchYears(1968, 50), []);
 
-  // Step 1 Screening Verification Handler (Zero-Leak Security Policy)
+  // Degree Program options from official registry & accredited offerings
+  const allDegreeOptions = React.useMemo(() => {
+    const list: string[] = [...OFFICIAL_DEGREE_PROGRAMS];
+    const records = getRegistrarRecords();
+    records.forEach((r) => {
+      if (r.course && !list.includes(r.course)) {
+        list.push(r.course);
+      }
+    });
+    return list;
+  }, []);
+
+  // Compute preview Alumni ID (Distinct from Student ID)
+  const previewAlumniId = React.useMemo(() => {
+    return generateAlumniId(batch, studentId);
+  }, [batch, studentId]);
+
+  // Step 1 Screening Verification Handler (Strict Zero-Tolerance Registry Enforcement)
   const handleVerifyStudentClick = async (
     e?: React.MouseEvent | React.FormEvent,
     overrideId?: string,
@@ -222,9 +269,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({
       return;
     }
 
-    // Zero-Leak Enforcement: User must provide both Name and Batch Year to prove ID ownership
     if (!targetFirst || !targetLast) {
-      setScreeningError('Security Challenge Required: To protect student privacy and prevent unauthorized account registration using another student’s ID, please enter your First Name and Last Name.');
+      setScreeningError('Security Challenge Required: Please enter your complete First Name and Last Name as recorded in the registrar.');
       setStudentVerificationStatus('failed');
       setVerificationMessage('Ownership verification failed: First Name and Last Name are required to authenticate your ownership of this Student ID.');
       return;
@@ -237,58 +283,43 @@ export const AuthPage: React.FC<AuthPageProps> = ({
       return;
     }
 
+    if (!targetCourse) {
+      setScreeningError('Please select your Degree Program.');
+      setStudentVerificationStatus('failed');
+      setVerificationMessage('Degree Program is required to verify ownership of this Student ID.');
+      return;
+    }
+
     setScreeningError('');
     setStudentVerificationStatus('checking');
 
-    try {
-      const fullInputName = `${targetFirst} ${targetLast}`.trim();
-
-      // 1. Check against Registrar-uploaded Masterlist (CSV/Excel)
-      const regMatch = findRegistryMatch({
+    // Strict zero-tolerance validation against registrar masterlist
+    const validation = validateStudentRegistrationStrict(
+      {
         studentId: targetId,
-        fullName: fullInputName,
-        batchYear: targetBatch,
+        firstName: targetFirst,
+        lastName: targetLast,
+        batch: targetBatch,
         course: targetCourse
-      });
+      },
+      users
+    );
 
-      if (regMatch.isMatched && regMatch.record) {
-        setStudentVerificationStatus('verified');
-        setIsRegistryMatched(true);
-        setVerifiedRecord(regMatch.record);
-        setVerificationMessage(
-          `Official Registrar Masterlist Match! Identity and ownership confirmed for Student ID ${targetId}. Instant alumni registration activated.`
-        );
-        return;
-      }
-
-      // 2. Algorithmic institutional verification (supporting 1950 - 2159)
-      const result = await verifyStudentRecord({
-        studentId: targetId,
-        fullName: fullInputName,
-        batchYear: targetBatch,
-        course: targetCourse
-      });
-
-      if (result.isVerified) {
-        setStudentVerificationStatus('verified');
-        setIsRegistryMatched(false);
-        setVerificationMessage(result.message);
-        if (result.record) {
-          setVerifiedRecord(result.record);
-        }
-      } else {
-        setStudentVerificationStatus('failed');
-        setIsRegistryMatched(false);
-        setVerificationMessage(
-          result.message ||
-          'Security Verification Failed: The provided Name and Graduating Batch do not match the official St. Cecilia’s College registrar records for this Student ID. Personal details cannot be disclosed to protect student privacy.'
-        );
-        setVerifiedRecord(null);
-      }
-    } catch {
+    if (validation.isValid && validation.matchedRecord) {
+      setStudentVerificationStatus('verified');
+      setIsRegistryMatched(true);
+      setVerifiedRecord(validation.matchedRecord);
+      setVerificationMessage(
+        `Official Registrar Masterlist Match! Identity and ownership confirmed for Student ID ${targetId}. Exact academic credentials authenticated.`
+      );
+      setScreeningError('');
+    } else {
       setStudentVerificationStatus('failed');
       setIsRegistryMatched(false);
-      setVerificationMessage('Failed to connect to verification service. Please try again.');
+      setVerifiedRecord(null);
+      const msg = validation.errorMessage || 'Security Verification Failed: The provided Student ID, Name, Graduating Batch, or Degree Program does not match the official registrar masterlist.';
+      setScreeningError(msg);
+      setVerificationMessage(msg);
     }
   };
 
@@ -420,7 +451,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     }
   };
 
-  // Step 1 Screening Validation -> Proceed to Step 2 Account & Profile (Zero-Leak Security)
+  // Step 1 Screening Validation -> Proceed to Step 2 Account & Profile (Strict Zero-Tolerance Registry Check)
   const handleProceedFromStep1ToStep2 = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setScreeningError('');
@@ -432,9 +463,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     }
 
     if (!firstName.trim() || !lastName.trim()) {
-      setScreeningError('Security Challenge Required: Please enter your First Name and Last Name to verify ownership of this Student ID.');
+      setScreeningError('Security Challenge Required: Please enter your complete First Name and Last Name as recorded in the registrar.');
       setStudentVerificationStatus('failed');
-      setVerificationMessage('To protect student privacy and prevent unauthorized account registration using stolen IDs, your name and graduating batch are required.');
+      setVerificationMessage('To protect student privacy and prevent unauthorized account registration, your full name, graduating batch, and degree program are required.');
       return;
     }
 
@@ -444,69 +475,45 @@ export const AuthPage: React.FC<AuthPageProps> = ({
       return;
     }
 
-    // If already verified, advance directly to Step 2
-    if (studentVerificationStatus === 'verified') {
-      setStep(2);
+    if (!course.trim()) {
+      setScreeningError('Please select your Degree Program from the list.');
+      setStudentVerificationStatus('failed');
       return;
     }
 
-    // Run real-time screening check
+    // Run real-time strict zero-tolerance screening check against registrar masterlist
     setStudentVerificationStatus('checking');
 
-    try {
-      const fullInputName = `${firstName.trim()} ${lastName.trim()}`.trim();
-
-      // 1. Try Registrar Masterlist match
-      const regMatch = findRegistryMatch({
+    const validation = validateStudentRegistrationStrict(
+      {
         studentId: targetId,
-        fullName: fullInputName,
-        batchYear: batch.trim(),
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        batch: batch.trim(),
         course: course.trim()
-      });
+      },
+      users
+    );
 
-      if (regMatch.isMatched && regMatch.record) {
-        setStudentVerificationStatus('verified');
-        setIsRegistryMatched(true);
-        setVerifiedRecord(regMatch.record);
-        setVerificationMessage(
-          `Official Registrar Masterlist Match! Identity and ownership confirmed for Student ID ${targetId}.`
-        );
-        setStep(2);
-        return;
-      }
-
-      // 2. Try Algorithmic check
-      if (isValidStudentIdPattern(targetId)) {
-        const result = await verifyStudentRecord({
-          studentId: targetId,
-          fullName: fullInputName,
-          batchYear: batch.trim(),
-          course: course.trim()
-        });
-
-        if (result.isVerified) {
-          setStudentVerificationStatus('verified');
-          setIsRegistryMatched(false);
-          setVerificationMessage(result.message);
-          if (result.record) {
-            setVerifiedRecord(result.record);
-          }
-          setStep(2);
-          return;
-        }
-      }
-
+    // If ANY detail does not match, STRICTLY CANNOT proceed to Step 2!
+    if (!validation.isValid || !validation.matchedRecord) {
       setStudentVerificationStatus('failed');
-      setScreeningError(
-        'Security Verification Failed: The provided Student ID, Name, or Graduating Batch does not match the registrar masterlist. For privacy protection, details are not disclosed.'
-      );
-      setVerificationMessage(
-        'Security Verification Failed: The provided name and graduation batch do not match the official St. Cecilia’s College records for this Student ID.'
-      );
-    } catch {
-      setStudentVerificationStatus('failed');
-      setScreeningError('Failed to connect to verification service. Please try again.');
+      setIsRegistryMatched(false);
+      setVerifiedRecord(null);
+      const msg = validation.errorMessage || 'Security Verification Failed: The provided Student ID, Name, Graduating Batch, or Degree Program does not match the official registrar masterlist.';
+      setScreeningError(msg);
+      setVerificationMessage(msg);
+      return; // DO NOT LET THEM PASS TO STEP 2
     }
+
+    // All details match 100% exactly
+    setStudentVerificationStatus('verified');
+    setIsRegistryMatched(true);
+    setVerifiedRecord(validation.matchedRecord);
+    setVerificationMessage(
+      `Official Registrar Masterlist Match! Identity and ownership confirmed for Student ID ${targetId}.`
+    );
+    setStep(2);
   };
 
   // Step 2 Validation -> Proceed to Step 3 Review & Honor Pledge
@@ -549,6 +556,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     const generatedHeadline = headline.trim() || `${course} Graduate • Class of ${batch}`;
     const isAutoVerified = studentVerificationStatus === 'verified' || isRegistryMatched;
     const finalStudentId = studentId.trim();
+    const generatedAlumniId = generateAlumniId(batch, finalStudentId);
 
     const registered = register({
       name: fullName,
@@ -561,6 +569,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
       headline: generatedHeadline,
       phone: phone.trim() || '+63 917 123 4567',
       studentId: finalStudentId,
+      alumniId: generatedAlumniId,
       isVerified: isAutoVerified
     });
 
@@ -576,16 +585,95 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         actorName: fullName,
         actorRole: 'alumni',
         category: 'alumni_registration',
-        details: `Alumnus completed screening and registered with verified Student ID (${finalStudentId}). Account pre-authenticated and registered into Cecilian alumni network.`,
+        details: `Alumnus completed screening and registered with verified Student ID (${finalStudentId}) and Official Alumni ID (${generatedAlumniId}). Account pre-authenticated and registered into Cecilian alumni network.`,
         severity: 'success'
       });
-      showToast(`🎉 Welcome to St. Cecilia's Alumni Network, ${fullName}!`, 'success');
+      showToast(`🎉 Welcome to St. Cecilia's Alumni Network, ${fullName}! Your Official Alumni ID is ${generatedAlumniId}`, 'success');
     }
 
     setRegistrationComplete(true);
     setTimeout(() => {
       if (onLoginSuccess) {
         onLoginSuccess('alumni');
+      } else if (onBackToApp) {
+        onBackToApp();
+      }
+    }, 1200);
+  };
+
+  // Employer Registration Form Handler
+  const handleEmployerRegister = (e: React.FormEvent) => {
+    e.preventDefault();
+    setEmployerError('');
+
+    if (!companyName.trim()) {
+      setEmployerError('Company / Organization Name is required.');
+      return;
+    }
+    if (!employerContactPerson.trim()) {
+      setEmployerError('Contact Person / HR Representative full name is required.');
+      return;
+    }
+    if (!employerEmail.trim() || !employerEmail.includes('@')) {
+      setEmployerError('A valid corporate work email address is required.');
+      return;
+    }
+    if (!employerPassword || employerPassword.length < 6) {
+      setEmployerError('Password must be at least 6 characters long.');
+      return;
+    }
+    if (employerPassword !== employerConfirmPassword) {
+      setEmployerError('Passwords do not match.');
+      return;
+    }
+
+    // Check duplicate email
+    const existing = users.find((u) => u.email.toLowerCase() === employerEmail.trim().toLowerCase());
+    if (existing) {
+      setEmployerError(`An account with email "${employerEmail}" is already registered. Please sign in or use a different email.`);
+      return;
+    }
+
+    setIsSubmittingEmployer(true);
+
+    const registered = register({
+      role: 'employer',
+      name: employerContactPerson.trim(),
+      email: employerEmail.trim().toLowerCase(),
+      password: employerPassword,
+      companyName: companyName.trim(),
+      companyIndustry: companyIndustry.trim(),
+      companyWebsite: companyWebsite.trim() ? (companyWebsite.startsWith('http') ? companyWebsite.trim() : `https://${companyWebsite.trim()}`) : '',
+      companyAddress: companyAddress.trim() || 'Cebu City, Philippines',
+      location: companyAddress.trim() || 'Cebu City, Philippines',
+      phone: employerPhone.trim() || '+63 917 123 4567',
+      contactPhone: employerPhone.trim() || '+63 917 123 4567',
+      contactPerson: employerContactPerson.trim(),
+      headline: `Hiring Partner • ${companyName.trim()}`,
+      isVerified: false,
+      verified: false
+    });
+
+    if (!registered) {
+      setIsSubmittingEmployer(false);
+      setEmployerError('Registration could not be completed. Please review your details.');
+      return;
+    }
+
+    addAuditLog({
+      action: 'EMPLOYER_REGISTER',
+      actorId: 'new_employer',
+      actorName: employerContactPerson.trim(),
+      actorRole: 'employer',
+      category: 'user_management',
+      details: `Employer partner registered: "${companyName.trim()}" by ${employerContactPerson.trim()} (${employerEmail.trim()}). Account provisioned for employer portal access, pending accreditation verification.`,
+      severity: 'info'
+    });
+
+    setRegistrationComplete(true);
+    setTimeout(() => {
+      if (onLoginSuccess) {
+        onLoginSuccess('employer');
       } else if (onBackToApp) {
         onBackToApp();
       }
@@ -639,80 +727,103 @@ export const AuthPage: React.FC<AuthPageProps> = ({
 
           {/* Large Serif Heading */}
           <h1 className="font-serif text-5xl xl:text-6xl font-normal text-white tracking-tight leading-[1.1] mb-5">
-            {mode === 'login' ? 'Welcome Back.' : 'Join the Network.'}
+            {mode === 'login'
+              ? 'Welcome Back.'
+              : registrationType === 'employer'
+              ? 'Hiring Partner Network.'
+              : 'Join the Network.'}
           </h1>
 
           {/* Subtitle */}
           <p className="text-stone-300 text-base xl:text-lg leading-relaxed font-light mb-8">
             {mode === 'login'
               ? 'Sign in to access your alumni network, events, and career opportunities.'
+              : registrationType === 'employer'
+              ? 'Register your organization to hire certified Cecilian graduates, publish job openings, and access our career recruitment portal.'
               : "Apply for exclusive access to the St. Cecilia's alumni community."}
           </p>
 
           {/* Stepper (Only on Register Mode) */}
           {mode === 'register' && (
-            <div className="space-y-4 pt-4 border-t border-white/10 max-w-xs">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
-                    step === 1
-                      ? 'bg-white text-stone-950 shadow-md'
-                      : step > 1
-                      ? 'bg-[#8B181B] text-white'
-                      : 'border border-white/40 text-white/50'
-                  }`}
-                >
-                  {step > 1 ? '✓' : '1'}
+            registrationType === 'employer' ? (
+              <div className="space-y-4 pt-4 border-t border-white/10 max-w-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-6 h-6 rounded-full bg-[#8B181B] text-white flex items-center justify-center text-xs font-bold">
+                    1
+                  </div>
+                  <span className="text-sm font-bold text-white">Company Registration</span>
                 </div>
-                <span
-                  className={`text-sm font-medium ${
-                    step === 1 ? 'text-white font-bold' : step > 1 ? 'text-stone-300' : 'text-stone-500'
-                  }`}
-                >
-                  Student ID Screening
-                </span>
+                <div className="flex items-center gap-3">
+                  <div className="w-6 h-6 rounded-full border border-white/40 text-white/50 flex items-center justify-center text-xs font-bold">
+                    2
+                  </div>
+                  <span className="text-sm font-medium text-stone-400">Accreditation Verification</span>
+                </div>
               </div>
+            ) : (
+              <div className="space-y-4 pt-4 border-t border-white/10 max-w-xs">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
+                      step === 1
+                        ? 'bg-white text-stone-950 shadow-md'
+                        : step > 1
+                        ? 'bg-[#8B181B] text-white'
+                        : 'border border-white/40 text-white/50'
+                    }`}
+                  >
+                    {step > 1 ? '✓' : '1'}
+                  </div>
+                  <span
+                    className={`text-sm font-medium ${
+                      step === 1 ? 'text-white font-bold' : step > 1 ? 'text-stone-300' : 'text-stone-500'
+                    }`}
+                  >
+                    Student ID Screening
+                  </span>
+                </div>
 
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
-                    step === 2
-                      ? 'bg-white text-stone-950 shadow-md'
-                      : step > 2
-                      ? 'bg-[#8B181B] text-white'
-                      : 'border border-white/40 text-white/50'
-                  }`}
-                >
-                  {step > 2 ? '✓' : '2'}
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
+                      step === 2
+                        ? 'bg-white text-stone-950 shadow-md'
+                        : step > 2
+                        ? 'bg-[#8B181B] text-white'
+                        : 'border border-white/40 text-white/50'
+                    }`}
+                  >
+                    {step > 2 ? '✓' : '2'}
+                  </div>
+                  <span
+                    className={`text-sm font-medium ${
+                      step === 2 ? 'text-white font-bold' : step > 2 ? 'text-stone-300' : 'text-stone-500'
+                    }`}
+                  >
+                    Account & Profile
+                  </span>
                 </div>
-                <span
-                  className={`text-sm font-medium ${
-                    step === 2 ? 'text-white font-bold' : step > 2 ? 'text-stone-300' : 'text-stone-500'
-                  }`}
-                >
-                  Account & Profile
-                </span>
-              </div>
 
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
-                    step === 3
-                      ? 'bg-white text-stone-950 shadow-md'
-                      : 'border border-white/40 text-white/50'
-                  }`}
-                >
-                  3
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
+                      step === 3
+                        ? 'bg-white text-stone-950 shadow-md'
+                        : 'border border-white/40 text-white/50'
+                    }`}
+                  >
+                    3
+                  </div>
+                  <span
+                    className={`text-sm font-medium ${
+                      step === 3 ? 'text-white font-bold' : 'text-stone-500'
+                    }`}
+                  >
+                    Review & Pledge
+                  </span>
                 </div>
-                <span
-                  className={`text-sm font-medium ${
-                    step === 3 ? 'text-white font-bold' : 'text-stone-500'
-                  }`}
-                >
-                  Review & Pledge
-                </span>
               </div>
-            </div>
+            )
           )}
         </div>
 
@@ -976,18 +1087,34 @@ export const AuthPage: React.FC<AuthPageProps> = ({
               </div>
 
               {/* Bottom Switcher */}
-              <div className="text-center pt-2 text-xs text-stone-500">
-                Don't have an account?{' '}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMode('register');
-                    setStep(1);
-                  }}
-                  className="text-[#8B181B] font-bold hover:underline"
-                >
-                  Apply Now
-                </button>
+              <div className="text-center pt-2 text-xs text-stone-500 space-y-1.5">
+                <div>
+                  Don't have an alumni account?{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode('register');
+                      setRegistrationType('alumni');
+                      setStep(1);
+                    }}
+                    className="text-[#8B181B] font-bold hover:underline cursor-pointer"
+                  >
+                    Register as Alumnus
+                  </button>
+                </div>
+                <div className="text-stone-400">
+                  Looking to hire Cecilians?{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode('register');
+                      setRegistrationType('employer');
+                    }}
+                    className="text-[#8B181B] font-bold hover:underline cursor-pointer"
+                  >
+                    Register as Employer Partner
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -1002,15 +1129,309 @@ export const AuthPage: React.FC<AuthPageProps> = ({
               <div className="text-center py-12">
                 <CheckCircle2 className="w-16 h-16 text-emerald-600 mx-auto mb-4" />
                 <h3 className="font-serif text-2xl font-bold text-stone-900">
-                  Welcome to St. Cecilia's Alumni!
+                  {registrationType === 'employer' ? 'Company Registration Received!' : "Welcome to St. Cecilia's Alumni!"}
                 </h3>
                 <p className="text-sm text-stone-500 mt-2">
-                  Your profile has been generated successfully. Redirecting you to the portal...
+                  {registrationType === 'employer'
+                    ? 'Your employer profile has been established. Redirecting to your Employer Career & Hiring Portal...'
+                    : 'Your profile has been generated successfully. Redirecting you to the portal...'}
                 </p>
               </div>
             ) : (
               <>
-                {/* NOTICE BANNER: ALUMNI-ONLY REGISTRATION */}
+                {/* ROLE SWITCHER TABS: ALUMNI VS EMPLOYER PARTNER */}
+                <div className="grid grid-cols-2 gap-1.5 p-1.5 bg-stone-200/80 rounded-2xl mb-5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRegistrationType('alumni');
+                      setEmployerError('');
+                    }}
+                    className={`py-2.5 px-3 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      registrationType === 'alumni'
+                        ? 'bg-white text-stone-900 shadow-sm border border-stone-200/80'
+                        : 'text-stone-600 hover:text-stone-900'
+                    }`}
+                  >
+                    <GraduationCap className={`w-4 h-4 ${registrationType === 'alumni' ? 'text-[#8B181B]' : 'text-stone-400'}`} />
+                    <span>Alumni / Graduate</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRegistrationType('employer');
+                      setScreeningError('');
+                    }}
+                    className={`py-2.5 px-3 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      registrationType === 'employer'
+                        ? 'bg-white text-stone-900 shadow-sm border border-stone-200/80'
+                        : 'text-stone-600 hover:text-stone-900'
+                    }`}
+                  >
+                    <Building2 className={`w-4 h-4 ${registrationType === 'employer' ? 'text-[#8B181B]' : 'text-stone-400'}`} />
+                    <span>Employer / Partner</span>
+                  </button>
+                </div>
+
+                {registrationType === 'employer' ? (
+                  <div>
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-red-100 text-[#8B181B] mb-2 border border-red-200">
+                      <Building2 className="w-3 h-3" />
+                      Corporate Accreditation & Recruitment Partner
+                    </div>
+                    <h2 className="font-serif text-3xl sm:text-4xl text-stone-900 font-normal tracking-tight mb-1">
+                      Register Organization
+                    </h2>
+                    <p className="text-sm text-stone-500 font-normal mb-4">
+                      Create an employer account to post career opportunities, browse candidate profiles, and hire certified Cecilian graduates.
+                    </p>
+
+                    {/* Notice Banner */}
+                    <div className="mb-5 p-3 rounded-xl bg-amber-50/90 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
+                      <Briefcase className="w-4 h-4 text-[#8B181B] shrink-0 mt-0.5" />
+                      <div className="leading-snug">
+                        <span className="font-bold">Employer Placement Accreditation:</span>{' '}
+                        <span>
+                          Account credentials allow instant access to candidate listings. The Alumni & Placement Office verifies company details before job posts are published to alumni.
+                        </span>
+                      </div>
+                    </div>
+
+                    {employerError && (
+                      <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                        <span>{employerError}</span>
+                      </div>
+                    )}
+
+                    <form onSubmit={handleEmployerRegister} className="space-y-4">
+                      {/* Company Name */}
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
+                          Company / Organization Name <span className="text-red-500">*</span>
+                        </label>
+                        <div className="relative">
+                          <Building className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            required
+                            value={companyName}
+                            onChange={(e) => setCompanyName(e.target.value)}
+                            placeholder="e.g., TechSolutions Philippines Inc."
+                            className="w-full pl-10 pr-4 py-2.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-hidden focus:ring-2 focus:ring-[#8B181B]/20 focus:border-[#8B181B]"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Industry & Website */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
+                            Industry Sector <span className="text-red-500">*</span>
+                          </label>
+                          <select
+                            value={companyIndustry}
+                            onChange={(e) => setCompanyIndustry(e.target.value)}
+                            className="w-full px-3 py-2.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-hidden focus:ring-2 focus:ring-[#8B181B]/20 focus:border-[#8B181B]"
+                          >
+                            <option value="Information Technology & Software">Information Technology & Software</option>
+                            <option value="BPO & Shared Services">BPO & Shared Services</option>
+                            <option value="Healthcare & Nursing">Healthcare & Nursing</option>
+                            <option value="Education & Academics">Education & Academics</option>
+                            <option value="Engineering & Construction">Engineering & Construction</option>
+                            <option value="Hospitality & Tourism">Hospitality & Tourism</option>
+                            <option value="Banking & Financial Services">Banking & Financial Services</option>
+                            <option value="Retail & E-Commerce">Retail & E-Commerce</option>
+                            <option value="Manufacturing & Logistics">Manufacturing & Logistics</option>
+                            <option value="Government & Public Sector">Government & Public Sector</option>
+                            <option value="Other Industry">Other Industry</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
+                            Company Website <span className="text-stone-400 font-normal">(optional)</span>
+                          </label>
+                          <div className="relative">
+                            <Globe className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              value={companyWebsite}
+                              onChange={(e) => setCompanyWebsite(e.target.value)}
+                              placeholder="https://company.com"
+                              className="w-full pl-10 pr-4 py-2.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-hidden focus:ring-2 focus:ring-[#8B181B]/20 focus:border-[#8B181B]"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Office Address / Location */}
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
+                          Office / Headquarters Location <span className="text-red-500">*</span>
+                        </label>
+                        <div className="relative">
+                          <MapPin className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            required
+                            value={companyAddress}
+                            onChange={(e) => setCompanyAddress(e.target.value)}
+                            placeholder="e.g., Cebu IT Park, Apas, Cebu City"
+                            className="w-full pl-10 pr-4 py-2.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-hidden focus:ring-2 focus:ring-[#8B181B]/20 focus:border-[#8B181B]"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Contact Person Name & Phone */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
+                            Contact Person <span className="text-red-500">*</span>
+                          </label>
+                          <div className="relative">
+                            <User className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              required
+                              value={employerContactPerson}
+                              onChange={(e) => setEmployerContactPerson(e.target.value)}
+                              placeholder="e.g., Juan Dela Cruz (HR)"
+                              className="w-full pl-10 pr-4 py-2.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-hidden focus:ring-2 focus:ring-[#8B181B]/20 focus:border-[#8B181B]"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
+                            Phone / Mobile Number <span className="text-red-500">*</span>
+                          </label>
+                          <div className="relative">
+                            <Phone className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="tel"
+                              required
+                              value={employerPhone}
+                              onChange={(e) => setEmployerPhone(e.target.value)}
+                              placeholder="+63 917 123 4567"
+                              className="w-full pl-10 pr-4 py-2.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-hidden focus:ring-2 focus:ring-[#8B181B]/20 focus:border-[#8B181B]"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Work Email */}
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
+                          Official Corporate Email <span className="text-red-500">*</span>
+                        </label>
+                        <div className="relative">
+                          <Mail className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="email"
+                            required
+                            value={employerEmail}
+                            onChange={(e) => setEmployerEmail(e.target.value)}
+                            placeholder="careers@company.com or hr@company.com"
+                            className="w-full pl-10 pr-4 py-2.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-hidden focus:ring-2 focus:ring-[#8B181B]/20 focus:border-[#8B181B]"
+                          />
+                        </div>
+                        <p className="text-[11px] text-stone-400 mt-1">This email will be used for applicant notifications and corporate login.</p>
+                      </div>
+
+                      {/* Passwords */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
+                            Password <span className="text-red-500">*</span>
+                          </label>
+                          <div className="relative">
+                            <Lock className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                            <input
+                              type={showEmployerPassword ? 'text' : 'password'}
+                              required
+                              value={employerPassword}
+                              onChange={(e) => setEmployerPassword(e.target.value)}
+                              placeholder="Min. 6 chars"
+                              className="w-full pl-10 pr-10 py-2.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-hidden focus:ring-2 focus:ring-[#8B181B]/20 focus:border-[#8B181B]"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowEmployerPassword(!showEmployerPassword)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
+                            >
+                              {showEmployerPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
+                            Confirm Password <span className="text-red-500">*</span>
+                          </label>
+                          <div className="relative">
+                            <Lock className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                            <input
+                              type={showEmployerConfirmPassword ? 'text' : 'password'}
+                              required
+                              value={employerConfirmPassword}
+                              onChange={(e) => setEmployerConfirmPassword(e.target.value)}
+                              placeholder="Re-enter password"
+                              className="w-full pl-10 pr-10 py-2.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-hidden focus:ring-2 focus:ring-[#8B181B]/20 focus:border-[#8B181B]"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowEmployerConfirmPassword(!showEmployerConfirmPassword)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
+                            >
+                              {showEmployerConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Policy acknowledgement */}
+                      <div className="p-3 bg-stone-50 border border-stone-200 rounded-xl text-[11px] text-stone-600 flex items-start gap-2">
+                        <ShieldCheck className="w-4 h-4 text-[#8B181B] shrink-0 mt-0.5" />
+                        <span>
+                          By registering, you certify that you are an authorized representative of this organization and agree to maintain ethical recruitment standards and Cecilian student privacy.
+                        </span>
+                      </div>
+
+                      {/* Action Button */}
+                      <button
+                        type="submit"
+                        disabled={isSubmittingEmployer}
+                        className="w-full py-3.5 bg-[#8B181B] hover:bg-[#721316] text-white rounded-xl text-xs font-bold tracking-widest uppercase transition-all shadow-md shadow-red-950/20 hover:shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                      >
+                        {isSubmittingEmployer ? (
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <>
+                            <Building2 className="w-4 h-4" />
+                            <span>REGISTER COMPANY ACCOUNT</span>
+                          </>
+                        )}
+                      </button>
+
+                      {/* Switch to login */}
+                      <div className="text-center pt-2 text-xs text-stone-500">
+                        Already have an employer account?{' '}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMode('login');
+                          }}
+                          className="text-[#8B181B] font-bold hover:underline cursor-pointer"
+                        >
+                          Sign In
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                ) : (
+                  <>
+                    {/* NOTICE BANNER: ALUMNI-ONLY REGISTRATION */}
                 <div className="mb-5 p-3 rounded-xl bg-amber-50/90 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
                   <GraduationCap className="w-4 h-4 text-[#8B181B] shrink-0 mt-0.5" />
                   <div className="leading-snug">
@@ -1160,15 +1581,25 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1.5">
-                            DEGREE PROGRAM
+                            DEGREE PROGRAM *
                           </label>
-                          <input
-                            type="text"
+                          <select
                             value={course}
-                            onChange={(e) => setCourse(e.target.value)}
-                            placeholder="e.g. B.S. Information Technology"
-                            className="w-full px-4 py-2.5 bg-white border border-stone-200 rounded-xl text-sm focus:border-[#8B181B] focus:ring-1 focus:ring-[#8B181B]"
-                          />
+                            onChange={(e) => {
+                              setCourse(e.target.value);
+                              if (studentVerificationStatus !== 'idle') {
+                                setStudentVerificationStatus('idle');
+                                setVerificationMessage('');
+                              }
+                            }}
+                            className="w-full px-3 py-2.5 bg-white border border-stone-200 rounded-xl text-sm font-medium focus:border-[#8B181B] focus:ring-1 focus:ring-[#8B181B]"
+                          >
+                            {allDegreeOptions.map((prog) => (
+                              <option key={prog} value={prog}>
+                                {prog}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                       </div>
 
@@ -1311,19 +1742,25 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                       Create your portal login credentials and verify your alumni profile.
                     </p>
 
-                    {/* Verified Student ID Banner */}
-                    <div className="mb-4 p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <Check className="w-4 h-4 text-emerald-600" />
+                    {/* Verified Student ID & Alumni ID Banner */}
+                    <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2.5">
+                        <Check className="w-4 h-4 text-emerald-600 shrink-0" />
                         <div>
-                          <span className="text-[10px] text-emerald-700 font-bold uppercase block">Screened Student ID</span>
-                          <span className="font-mono font-bold text-emerald-950">{studentId}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-emerald-800 font-bold uppercase">Screened Student ID:</span>
+                            <span className="font-mono font-bold text-emerald-950">{studentId}</span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] text-[#8B181B] font-bold uppercase">Official Alumni ID:</span>
+                            <span className="font-mono font-bold text-stone-900">{previewAlumniId}</span>
+                          </div>
                         </div>
                       </div>
                       <button
                         type="button"
                         onClick={() => setStep(1)}
-                        className="text-[10px] text-[#8B181B] font-bold hover:underline cursor-pointer"
+                        className="text-[10px] text-[#8B181B] font-bold hover:underline cursor-pointer shrink-0"
                       >
                         Change ID
                       </button>
@@ -1404,14 +1841,17 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                           <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1.5">
                             DEGREE PROGRAM *
                           </label>
-                          <input
-                            type="text"
-                            required
+                          <select
                             value={course}
                             onChange={(e) => setCourse(e.target.value)}
-                            placeholder="B.S. Information Technology"
-                            className="w-full px-4 py-2.5 bg-white border border-stone-200 rounded-xl text-sm focus:border-[#8B181B] focus:ring-1 focus:ring-[#8B181B]"
-                          />
+                            className="w-full px-3 py-2.5 bg-white border border-stone-200 rounded-xl text-sm font-medium focus:border-[#8B181B] focus:ring-1 focus:ring-[#8B181B]"
+                          >
+                            {allDegreeOptions.map((prog) => (
+                              <option key={prog} value={prog}>
+                                {prog}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                       </div>
 
@@ -1564,9 +2004,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({
 
                     <div className="bg-stone-50 p-4 rounded-2xl border border-stone-200 space-y-3 text-xs mb-5">
                       <div className="flex justify-between border-b border-stone-200 pb-2">
-                        <span className="text-stone-500">Student ID</span>
+                        <span className="text-stone-500">Official Alumni ID</span>
                         <div className="text-right">
-                          <span className="font-mono font-bold text-stone-900">{studentId}</span>
+                          <span className="font-mono font-bold text-[#8B181B] text-sm">{previewAlumniId}</span>
+                          <span className="text-[10px] text-stone-500 block font-mono">Academic Student ID: {studentId}</span>
                           <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 font-bold block">
                             <Check className="w-3 h-3 text-emerald-600 inline" />
                             Official Registrar Screened
@@ -1637,6 +2078,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 )}
               </>
             )}
+            </>
+          )}
           </div>
         )}
       </div>

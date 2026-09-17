@@ -79,7 +79,6 @@ export const alumniService = {
    * READ: Fetch single alumnus profile by UID from Firestore
    */
   async getAlumniById(uid: string): Promise<UserProfile | null> {
-    if (!auth.currentUser) return null;
     const docPath = `${FIRESTORE_COLLECTIONS.USERS}/${uid}`;
     try {
       const userRef = doc(db, FIRESTORE_COLLECTIONS.USERS, uid);
@@ -149,7 +148,6 @@ export const alumniService = {
     role?: UserRole | 'all';
     search?: string;
   }): Promise<UserProfile[]> {
-    if (!auth.currentUser) return [];
     const colPath = FIRESTORE_COLLECTIONS.USERS;
     try {
       const constraints: QueryConstraint[] = [];

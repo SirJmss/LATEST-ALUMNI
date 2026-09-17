@@ -275,7 +275,6 @@ export async function getUserFromFirestore(uid: string): Promise<UserProfile | n
  * Fetch all users from Firestore
  */
 export async function getAllUsersFromFirestore(): Promise<UserProfile[]> {
-  if (!auth.currentUser) return [];
   try {
     const colRef = collection(db, FIRESTORE_COLLECTIONS.USERS);
     const snap = await getDocs(colRef);
@@ -294,7 +293,6 @@ export async function getAllUsersFromFirestore(): Promise<UserProfile[]> {
  * Subscribe to real-time users collection
  */
 export function subscribeToUsers(onUpdate: (users: UserProfile[]) => void) {
-  if (!auth.currentUser) return () => {};
   const colRef = collection(db, FIRESTORE_COLLECTIONS.USERS);
   return onSnapshot(
     colRef,
@@ -772,5 +770,134 @@ export function subscribeToRegistryRecords(onUpdate: (records: StudentVerificati
     },
     (err) => console.warn('Firestore Registry subscription notice:', err)
   );
+}
+
+/**
+ * Save audit log to Firestore
+ */
+export async function saveAuditLogToFirestore(log: any): Promise<void> {
+  try {
+    const docRef = doc(db, 'audit_logs', log.id);
+    await setDoc(docRef, JSON.parse(JSON.stringify(log)), { merge: true });
+  } catch (err) {
+    console.warn('Failed to save audit log to Firestore:', err);
+  }
+}
+
+/**
+ * Save gallery item to Firestore
+ */
+export async function saveGalleryItemToFirestore(item: any): Promise<void> {
+  try {
+    const docRef = doc(db, 'gallery', item.id);
+    await setDoc(docRef, JSON.parse(JSON.stringify(item)), { merge: true });
+  } catch (err) {
+    console.warn('Failed to save gallery item to Firestore:', err);
+  }
+}
+
+/**
+ * Delete gallery item from Firestore
+ */
+export async function deleteGalleryItemFromFirestore(id: string): Promise<void> {
+  try {
+    const docRef = doc(db, 'gallery', id);
+    await deleteDoc(docRef);
+  } catch (err) {
+    console.warn('Failed to delete gallery item from Firestore:', err);
+  }
+}
+
+/**
+ * Comprehensive Batch Sync of all datasets directly to Firestore Database
+ */
+export async function syncAllCollectionsToFirestore(payload: {
+  users?: UserProfile[];
+  events?: AlumniEvent[];
+  opportunities?: Opportunity[];
+  announcements?: Announcement[];
+  registryRecords?: StudentVerificationRecord[];
+  auditLogs?: any[];
+  onProgress?: (step: string, percent: number) => void;
+}): Promise<{ success: boolean; syncedCounts: Record<string, number>; errors: string[] }> {
+  const errors: string[] = [];
+  const syncedCounts: Record<string, number> = {
+    users: 0,
+    events: 0,
+    opportunities: 0,
+    announcements: 0,
+    registry_records: 0
+  };
+
+  try {
+    // 1. Users
+    if (payload.users && payload.users.length > 0) {
+      payload.onProgress?.('Uploading alumni and accounts to Firestore...', 20);
+      for (const user of payload.users) {
+        try {
+          const userRef = doc(db, FIRESTORE_COLLECTIONS.USERS, user.uid);
+          await setDoc(userRef, JSON.parse(JSON.stringify(user)), { merge: true });
+          syncedCounts.users++;
+        } catch (e: any) {
+          errors.push(`User ${user.name}: ${e?.message || e}`);
+        }
+      }
+    }
+
+    // 2. Events
+    if (payload.events && payload.events.length > 0) {
+      payload.onProgress?.('Uploading campus events & RSVPs to Firestore...', 40);
+      for (const ev of payload.events) {
+        try {
+          const docRef = doc(db, FIRESTORE_COLLECTIONS.EVENTS, ev.id);
+          await setDoc(docRef, JSON.parse(JSON.stringify(ev)), { merge: true });
+          syncedCounts.events++;
+        } catch (e: any) {
+          errors.push(`Event ${ev.title}: ${e?.message || e}`);
+        }
+      }
+    }
+
+    // 3. Opportunities
+    if (payload.opportunities && payload.opportunities.length > 0) {
+      payload.onProgress?.('Uploading career opportunities to Firestore...', 60);
+      for (const opp of payload.opportunities) {
+        try {
+          const docRef = doc(db, FIRESTORE_COLLECTIONS.OPPORTUNITIES, opp.id);
+          await setDoc(docRef, JSON.parse(JSON.stringify(opp)), { merge: true });
+          syncedCounts.opportunities++;
+        } catch (e: any) {
+          errors.push(`Opportunity ${opp.title}: ${e?.message || e}`);
+        }
+      }
+    }
+
+    // 4. Announcements
+    if (payload.announcements && payload.announcements.length > 0) {
+      payload.onProgress?.('Uploading institutional announcements to Firestore...', 80);
+      for (const ann of payload.announcements) {
+        try {
+          const docRef = doc(db, FIRESTORE_COLLECTIONS.ANNOUNCEMENTS, ann.id);
+          await setDoc(docRef, JSON.parse(JSON.stringify(ann)), { merge: true });
+          syncedCounts.announcements++;
+        } catch (e: any) {
+          errors.push(`Announcement ${ann.title}: ${e?.message || e}`);
+        }
+      }
+    }
+
+    // 5. Registry Records
+    if (payload.registryRecords && payload.registryRecords.length > 0) {
+      payload.onProgress?.('Uploading student registry masterlist to Firestore...', 95);
+      const res = await saveRegistryRecordsBatchToFirestore(payload.registryRecords);
+      syncedCounts.registry_records = res.added;
+    }
+
+    payload.onProgress?.('All records successfully synchronized with Firestore Database!', 100);
+    return { success: errors.length === 0, syncedCounts, errors };
+  } catch (err: any) {
+    errors.push(`Batch sync error: ${err?.message || err}`);
+    return { success: false, syncedCounts, errors };
+  }
 }
 

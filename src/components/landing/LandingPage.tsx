@@ -16,7 +16,7 @@ import { useAlumni } from '../../context/AlumniContext';
 import { CampusGalleryModal } from '../gallery/CampusGalleryModal';
 
 interface LandingPageProps {
-  onNavigateToAuth: (mode: 'login' | 'register') => void;
+  onNavigateToAuth: (mode: 'login' | 'register', role?: 'alumni' | 'employer') => void;
 }
 
 // 3 Slideshow images corresponding directly to the user's authentic uploaded campus photographs
@@ -651,15 +651,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center justify-center gap-6 text-[11px] text-[#6B7280]">
-              <button onClick={() => setShowGalleryModal(true)} className="hover:text-[#111827]">
+              <button onClick={() => setShowGalleryModal(true)} className="hover:text-[#111827] cursor-pointer">
                 Campus Gallery
               </button>
               <span>•</span>
-              <button onClick={() => onNavigateToAuth('register')} className="hover:text-[#991B1B]">
+              <button onClick={() => onNavigateToAuth('register', 'alumni')} className="hover:text-[#991B1B] cursor-pointer">
                 Alumni Registration
               </button>
               <span>•</span>
-              <button onClick={() => onNavigateToAuth('login')} className="hover:text-[#111827]">
+              <button onClick={() => onNavigateToAuth('register', 'employer')} className="hover:text-[#991B1B] font-medium cursor-pointer">
+                Employer Registration
+              </button>
+              <span>•</span>
+              <button onClick={() => onNavigateToAuth('login')} className="hover:text-[#111827] cursor-pointer">
                 Sign In
               </button>
               <span>•</span>

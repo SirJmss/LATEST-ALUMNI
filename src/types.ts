@@ -1,5 +1,25 @@
 export type UserRole = 'alumni' | 'student' | 'faculty' | 'admin' | 'registrar' | 'staff' | 'moderator' | 'superadmin' | 'employer';
 
+export const OFFICIAL_DEGREE_PROGRAMS = [
+  'B.S. Information Technology',
+  'B.S. Computer Science',
+  'B.S. Information Systems',
+  'B.S. Computer Engineering',
+  'B.S. Accountancy',
+  'B.S. Business Administration',
+  'B.S. Hospitality Management',
+  'B.S. Tourism Management',
+  'B.S. Nursing',
+  'B.S. Criminology',
+  'B.S. Education',
+  'B.S. Secondary Education',
+  'B.S. Elementary Education',
+  'B.S. Public Administration',
+  'B.S. Psychology'
+] as const;
+
+export type DegreeProgram = typeof OFFICIAL_DEGREE_PROGRAMS[number] | string;
+
 export interface Experience {
   id: string;
   title: string;
@@ -46,7 +66,8 @@ export interface UserProfile {
   experience: Experience[];
   education: Education[];
   createdAt: string;
-  studentId?: string;
+  alumniId?: string; // Official Alumni ID (e.g. SCC-ALUM-2024-0192), distinct from Student ID
+  studentId?: string; // Student ID from academic registrar records
   employeeId?: string;
   department?: string;
   password?: string;

@@ -35,6 +35,7 @@ function AppContent() {
     }
   });
   const [authViewMode, setAuthViewMode] = useState<'login' | 'register'>('login');
+  const [authRole, setAuthRole] = useState<'alumni' | 'employer'>('alumni');
 
   const handleLoginSuccess = (role?: string) => {
     setCurrentView('portal');
@@ -51,8 +52,9 @@ function AppContent() {
   if (currentView === 'landing') {
     return (
       <LandingPage
-        onNavigateToAuth={(mode) => {
+        onNavigateToAuth={(mode, role = 'alumni') => {
           setAuthViewMode(mode);
+          setAuthRole(role);
           setCurrentView('auth');
         }}
       />
@@ -64,6 +66,7 @@ function AppContent() {
     return (
       <AuthPage
         initialMode={authViewMode}
+        initialRole={authRole}
         onLoginSuccess={handleLoginSuccess}
         onBackToApp={() => {
           if (currentUser) {

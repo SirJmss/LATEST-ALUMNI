@@ -68,14 +68,19 @@ import {
   saveNotificationToFirestore,
   saveConnectionToFirestore,
   subscribeToUserChats,
-  subscribeToChatMessages
+  subscribeToChatMessages,
+  saveAuditLogToFirestore,
+  saveGalleryItemToFirestore,
+  deleteGalleryItemFromFirestore,
+  syncAllCollectionsToFirestore
 } from '../lib/firebase';
 import {
   markRegistryRecordAsRegistered,
   getRegistrarRecords,
   isValidStudentIdPattern,
   normalizeStudentId,
-  syncRegistrarRecordsWithFirestore
+  syncRegistrarRecordsWithFirestore,
+  generateAlumniId
 } from '../services/studentVerificationService';
 import { alumniService } from '../services/alumniService';
 import { checkAnniversariesAndGreetings, calculateProfileCompletion } from '../services/automationService';
@@ -101,6 +106,7 @@ interface AlumniContextType {
   isFirebaseConnected: boolean;
   isFirestoreSyncing: boolean;
   loginWithGoogle: () => Promise<boolean>;
+  syncAllDataToCloud: () => Promise<void>;
   
   // Permissions derived from current user role (from Role Permissions Summary)
   permissions: {
@@ -725,11 +731,6 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   // Real-time Firestore Subscriptions & Initial Seeding via alumniService
   useEffect(() => {
-    // Strictly adhere to rule: only attach Firestore listeners & fetch if auth is ready AND authenticated
-    if (!authReady || !firebaseUser) {
-      return;
-    }
-
     let isSubscribed = true;
 
     // Fetch live alumni directory directly from Firestore instance on load
@@ -825,7 +826,7 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }
     });
 
-    // Background seeding of initial data to Firestore replacing hardcoded fallback
+    // Background seeding of initial data to Firestore replacing empty collection state
     const seedFirestore = async () => {
       try {
         setIsFirestoreSyncing(true);
@@ -868,7 +869,7 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       unsubAnn();
       unsubReqs();
     };
-  }, [authReady, firebaseUser]);
+  }, []);
 
   // Current User resolution
   const currentUser = useMemo(() => {
@@ -1007,7 +1008,8 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       canAccessGrowthAnalytics: ['admin', 'superadmin'].includes(role || ''),
 
       // Administration & Chapters
-      canAssignRoles: ['admin', 'superadmin'].includes(role || ''),
+      // Assigned roles are immutable across the system - cannot be modified even by administrators
+      canAssignRoles: false,
       canVerifyAlumni: ['admin', 'superadmin', 'registrar'].includes(role || ''),
       canManageChapters: ['admin', 'superadmin', 'staff'].includes(role || '')
     };
@@ -1300,6 +1302,7 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       batch: finalBatch,
       course: finalCourse,
       location: data.location || (role === 'employer' ? 'Cebu City, Philippines' : 'Cebu, Philippines'),
+      alumniId: data.alumniId || (role === 'alumni' ? generateAlumniId(finalBatch, finalStudentId, newUid) : undefined),
       studentId: finalStudentId,
       employeeId: data.employeeId,
       department: data.department,
@@ -1967,6 +1970,9 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     };
 
     setEvents((prev) => [newEvt, ...prev]);
+    saveEventToFirestore(newEvt).catch((err) => {
+      console.warn('Failed to persist new event in Firestore:', err);
+    });
 
     // Broadcast notification to other users
     const broadcastNotif: AppNotification = {
@@ -1989,7 +1995,16 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return;
     }
     setEvents((prev) =>
-      prev.map((e) => (e.id === eventId ? { ...e, ...data } : e))
+      prev.map((e) => {
+        if (e.id === eventId) {
+          const updated = { ...e, ...data };
+          saveEventToFirestore(updated).catch((err) => {
+            console.warn('Failed to update event in Firestore:', err);
+          });
+          return updated;
+        }
+        return e;
+      })
     );
     showToast('Event details updated.');
   };
@@ -2001,6 +2016,7 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       ...entry
     };
     setAuditLogs((prev) => [newLog, ...prev.slice(0, 99)]);
+    saveAuditLogToFirestore(newLog).catch(() => {});
   }, []);
 
   const deleteEvent = (eventId: string) => {
@@ -2035,6 +2051,9 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
 
     setEvents((prev) => prev.filter((e) => e.id !== eventId));
+    deleteEventFromFirestore(eventId).catch((err) => {
+      console.warn('Failed to delete event from Firestore:', err);
+    });
     showToast('Event deleted.');
   };
 
@@ -2044,12 +2063,14 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       prev.map((e) => {
         if (e.id === eventId) {
           const liked = e.likes.includes(currentUser.uid);
-          return {
+          const updated = {
             ...e,
             likes: liked
               ? e.likes.filter((id) => id !== currentUser.uid)
               : [...e.likes, currentUser.uid]
           };
+          saveEventToFirestore(updated).catch(() => {});
+          return updated;
         }
         return e;
       })
@@ -2071,10 +2092,12 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     setEvents((prev) =>
       prev.map((e) => {
         if (e.id === eventId) {
-          return {
+          const updated = {
             ...e,
             comments: [...e.comments, newComment]
           };
+          saveEventToFirestore(updated).catch(() => {});
+          return updated;
         }
         return e;
       })
@@ -2271,6 +2294,9 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     };
 
     setAnnouncements((prev) => [newAnn, ...prev]);
+    saveAnnouncementToFirestore(newAnn).catch((err) => {
+      console.warn('Failed to save announcement to Firestore:', err);
+    });
 
     // Broadcast notification
     const notif: AppNotification = {
@@ -2303,7 +2329,14 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return;
     }
     setAnnouncements((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, ...data } : a))
+      prev.map((a) => {
+        if (a.id === id) {
+          const updated = { ...a, ...data };
+          saveAnnouncementToFirestore(updated).catch(() => {});
+          return updated;
+        }
+        return a;
+      })
     );
     showToast('Announcement updated.');
   };
@@ -2314,6 +2347,7 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return;
     }
     setAnnouncements((prev) => prev.filter((a) => a.id !== id));
+    deleteAnnouncementFromFirestore(id).catch(() => {});
     showToast('Announcement removed.');
   };
 
@@ -2339,6 +2373,9 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     };
 
     setOpportunities((prev) => [newOpp, ...prev]);
+    saveOpportunityToFirestore(newOpp).catch((err) => {
+      console.warn('Failed to save opportunity to Firestore:', err);
+    });
 
     if (newOpp.approvalStatus === 'pending_approval') {
       showToast('Job posting submitted for Admin Approval! Status: Pending Approval.', 'info');
@@ -2358,12 +2395,22 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   const updateOpportunity = (id: string, data: Partial<Opportunity>) => {
-    setOpportunities((prev) => prev.map((o) => (o.id === id ? { ...o, ...data } : o)));
+    setOpportunities((prev) =>
+      prev.map((o) => {
+        if (o.id === id) {
+          const updated = { ...o, ...data };
+          saveOpportunityToFirestore(updated).catch(() => {});
+          return updated;
+        }
+        return o;
+      })
+    );
     showToast('Job posting details updated.', 'success');
   };
 
   const deleteOpportunity = (id: string) => {
     setOpportunities((prev) => prev.filter((o) => o.id !== id));
+    deleteOpportunityFromFirestore(id).catch(() => {});
     showToast('Opportunity removed.');
   };
 
@@ -2371,9 +2418,11 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     const opp = opportunities.find((o) => o.id === id);
     if (!opp) return;
 
+    const updated = { ...opp, approvalStatus: 'approved' as const };
     setOpportunities((prev) =>
-      prev.map((o) => (o.id === id ? { ...o, approvalStatus: 'approved' } : o))
+      prev.map((o) => (o.id === id ? updated : o))
     );
+    saveOpportunityToFirestore(updated).catch(() => {});
 
     // Notify the job poster
     const notif: AppNotification = {
@@ -2393,9 +2442,11 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     const opp = opportunities.find((o) => o.id === id);
     if (!opp) return;
 
+    const updated = { ...opp, approvalStatus: 'rejected' as const, rejectionReason: reason };
     setOpportunities((prev) =>
-      prev.map((o) => (o.id === id ? { ...o, approvalStatus: 'rejected', rejectionReason: reason } : o))
+      prev.map((o) => (o.id === id ? updated : o))
     );
+    saveOpportunityToFirestore(updated).catch(() => {});
 
     // Notify the job poster
     const notif: AppNotification = {
@@ -2751,17 +2802,10 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   const updateUserRole = (uid: string, newRole: UserRole) => {
-    if (!permissions.canAccessAdminPanel) {
-      showToast('Permission denied.');
-      return;
-    }
-    setUsers((prev) =>
-      prev.map((u) => (u.uid === uid ? { ...u, role: newRole } : u))
-    );
-    alumniService.updateAlumni(uid, { role: newRole }).catch((err) => {
-      console.warn('Error updating user role in Firestore:', err);
-    });
-    showToast(`User role updated to ${newRole.toUpperCase()}.`);
+    // Immutable Role Constraint: Assigned roles are permanent and cannot be modified even by administrators.
+    showToast('Role modification disabled: Assigned roles are permanent and immutable. System policy prohibits modifying user roles.', 'error');
+    console.warn(`Attempted role change for ${uid} to ${newRole} rejected: roles are immutable.`);
+    return;
   };
 
   const deleteAlumni = async (uid: string): Promise<boolean> => {
@@ -3050,6 +3094,42 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     showToast(`Employment status updated to: ${status}`, 'success');
   }, [currentUser, updateProfile, addAuditLog, showToast]);
 
+  const syncAllDataToCloud = useCallback(async () => {
+    setIsFirestoreSyncing(true);
+    showToast('Pushing all institutional datasets to Cloud Firestore...', 'info');
+    try {
+      const regRecords = getRegistrarRecords();
+      const result = await syncAllCollectionsToFirestore({
+        users,
+        events,
+        opportunities,
+        announcements,
+        registryRecords: regRecords,
+        auditLogs,
+        onProgress: (step) => {
+          console.info('[Cloud Sync Progress]:', step);
+        }
+      });
+
+      if (result.success) {
+        showToast(
+          `Cloud Sync Complete: ${result.syncedCounts.users} Users, ${result.syncedCounts.events} Events, ${result.syncedCounts.opportunities} Opportunities, ${result.syncedCounts.announcements} Announcements, ${result.syncedCounts.registry_records} Student Registry records written to Firestore.`,
+          'success'
+        );
+      } else {
+        showToast(
+          `Sync completed with notices: ${result.errors.slice(0, 2).join('; ')}`,
+          'warning'
+        );
+      }
+    } catch (err: any) {
+      console.warn('Manual Firestore sync error:', err);
+      showToast(`Firestore synchronization notice: ${err?.message || err}`, 'error');
+    } finally {
+      setIsFirestoreSyncing(false);
+    }
+  }, [users, events, opportunities, announcements, auditLogs, showToast]);
+
   return (
     <AlumniContext.Provider
       value={{
@@ -3073,6 +3153,7 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         isFirebaseConnected,
         isFirestoreSyncing,
         loginWithGoogle,
+        syncAllDataToCloud,
         login,
         register,
         logout,
