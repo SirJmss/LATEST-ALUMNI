@@ -33,10 +33,12 @@ export const EmployerManagementModule: React.FC = () => {
     toggleEmployerJobPosting,
     opportunities,
     setSelectedUserIdForModal,
-    showToast
+    showToast,
+    renewEmployerAccount,
+    isEmployerExpired
   } = useAlumni();
 
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'verified' | 'rejected'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'verified' | 'rejected' | 'renewal' | 'expired'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Rejection modal state
@@ -62,13 +64,26 @@ export const EmployerManagementModule: React.FC = () => {
     return allEmployers.filter((u) => u.employerVerificationStatus === 'rejected').length;
   }, [allEmployers]);
 
+  const renewalCount = useMemo(() => {
+    return allEmployers.filter((u) => u.employerStatus === 'pending_renewal' || u.employerRenewalRequested).length;
+  }, [allEmployers]);
+
+  const expiredCount = useMemo(() => {
+    return allEmployers.filter((u) => isEmployerExpired(u)).length;
+  }, [allEmployers, isEmployerExpired]);
+
   // Filtered employers list
   const filteredEmployers = useMemo(() => {
     return allEmployers.filter((emp) => {
       const currentStatus = emp.employerVerificationStatus || 'pending_verification';
+      const isExpired = isEmployerExpired(emp);
+      const isRenewal = emp.employerStatus === 'pending_renewal' || emp.employerRenewalRequested;
+
       if (statusFilter === 'pending' && currentStatus !== 'pending_verification') return false;
       if (statusFilter === 'verified' && currentStatus !== 'verified') return false;
       if (statusFilter === 'rejected' && currentStatus !== 'rejected') return false;
+      if (statusFilter === 'renewal' && !isRenewal) return false;
+      if (statusFilter === 'expired' && !isExpired) return false;
 
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
@@ -85,7 +100,7 @@ export const EmployerManagementModule: React.FC = () => {
       }
       return true;
     });
-  }, [allEmployers, statusFilter, searchQuery]);
+  }, [allEmployers, statusFilter, searchQuery, isEmployerExpired]);
 
   const handleApprove = (emp: UserProfile) => {
     verifyEmployer(emp.uid, true);
@@ -216,6 +231,30 @@ export const EmployerManagementModule: React.FC = () => {
             <XCircle className="w-3.5 h-3.5" />
             <span>Declined ({rejectedCount})</span>
           </button>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('renewal')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
+              statusFilter === 'renewal'
+                ? 'bg-blue-600 text-white'
+                : 'text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Renewal Requests ({renewalCount})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('expired')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
+              statusFilter === 'expired'
+                ? 'bg-stone-800 text-white'
+                : 'text-stone-700 bg-stone-100 hover:bg-stone-200 border border-stone-200'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5" />
+            <span>Expired ({expiredCount})</span>
+          </button>
         </div>
 
         {/* Search Field */}
@@ -251,6 +290,9 @@ export const EmployerManagementModule: React.FC = () => {
             const isPending = status === 'pending_verification';
             const isVerified = status === 'verified';
             const isRejected = status === 'rejected';
+            const isExpired = isEmployerExpired(emp);
+            const isRenewalRequested = emp.employerStatus === 'pending_renewal' || emp.employerRenewalRequested;
+            const expiryDate = emp.employerExpirationDate ? new Date(emp.employerExpirationDate) : null;
             const jobCount = getJobPostingsCount(emp.uid);
 
             return (
@@ -259,6 +301,10 @@ export const EmployerManagementModule: React.FC = () => {
                 className={`bg-white rounded-2xl border transition-all p-5 shadow-2xs flex flex-col justify-between gap-4 ${
                   isPending
                     ? 'border-amber-300 ring-1 ring-amber-200/50 bg-amber-50/20'
+                    : isRenewalRequested
+                    ? 'border-blue-300 ring-1 ring-blue-200/50 bg-blue-50/10'
+                    : isExpired
+                    ? 'border-rose-200 bg-rose-50/10'
                     : isVerified
                     ? 'border-stone-200 hover:border-emerald-300'
                     : 'border-stone-200 opacity-80'
@@ -283,7 +329,7 @@ export const EmployerManagementModule: React.FC = () => {
                         <h4 className="font-bold text-sm text-stone-900 leading-tight">
                           {emp.companyName || emp.name}
                         </h4>
-                        <p className="text-xs text-stone-500 mt-0.5 flex items-center gap-1 font-medium">
+                        <p className="text-xs text-stone-500 mt-0.5 flex items-center gap-1 font-medium flex-wrap">
                           <span>{emp.companyIndustry || 'Corporate Partner'}</span>
                           {emp.companyAddress && (
                             <>
@@ -291,28 +337,48 @@ export const EmployerManagementModule: React.FC = () => {
                               <span className="truncate max-w-[180px]">{emp.companyAddress}</span>
                             </>
                           )}
+                          {expiryDate && (
+                            <>
+                              <span>•</span>
+                              <span className={isExpired ? 'text-rose-600 font-bold' : 'text-stone-500'}>
+                                {isExpired ? 'Expired: ' : 'Exp: '}{expiryDate.toLocaleDateString()}
+                              </span>
+                            </>
+                          )}
                         </p>
                       </div>
                     </div>
 
                     {/* Status Badge */}
-                    <div className="shrink-0">
+                    <div className="shrink-0 flex items-center gap-1.5 flex-wrap justify-end">
+                      {isRenewalRequested && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-300">
+                          <Sparkles className="w-3 h-3 text-blue-700" />
+                          Renewal Req.
+                        </span>
+                      )}
+                      {isExpired && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-300">
+                          <Clock className="w-3 h-3 text-rose-700" />
+                          Expired
+                        </span>
+                      )}
                       {isPending && (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
                           <Clock className="w-3 h-3 text-amber-700" />
                           Pending Review
                         </span>
                       )}
-                      {isVerified && (
+                      {isVerified && !isExpired && (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">
                           <ShieldCheck className="w-3 h-3 text-emerald-700" />
-                          Accredited Partner
+                          Accredited
                         </span>
                       )}
                       {isRejected && (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-300">
                           <XCircle className="w-3 h-3 text-rose-700" />
-                          Application Declined
+                          Declined
                         </span>
                       )}
                     </div>
@@ -323,6 +389,29 @@ export const EmployerManagementModule: React.FC = () => {
                     <p className="text-xs text-stone-600 mt-3 line-clamp-2 leading-relaxed bg-stone-50 p-2.5 rounded-xl border border-stone-100">
                       {emp.about}
                     </p>
+                  )}
+
+                  {/* Renewal Request Callout */}
+                  {isRenewalRequested && (
+                    <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                      <div>
+                        <span className="font-bold flex items-center gap-1.5 text-blue-900">
+                          <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                          Accreditation Renewal Requested
+                        </span>
+                        {emp.employerRenewalNotes && (
+                          <p className="text-[11px] text-blue-800 mt-1">"{emp.employerRenewalNotes}"</p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => renewEmployerAccount(emp.uid, 12)}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shrink-0 transition-colors shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Approve Renewal (+12 Mo)</span>
+                      </button>
+                    </div>
                   )}
 
                   {/* Contact details grid */}
@@ -423,6 +512,15 @@ export const EmployerManagementModule: React.FC = () => {
                       <>
                         <button
                           type="button"
+                          onClick={() => renewEmployerAccount(emp.uid, 12)}
+                          className="px-2.5 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-colors flex items-center gap-1 cursor-pointer"
+                          title="Extend accreditation by 12 months"
+                        >
+                          <Clock className="w-3.5 h-3.5" />
+                          <span>Renew +12 Mo</span>
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => handleOpenRejectModal(emp)}
                           className="px-3 py-1.5 text-xs font-semibold text-stone-600 hover:text-rose-700 hover:bg-stone-100 rounded-xl transition-colors cursor-pointer"
                         >
@@ -438,6 +536,15 @@ export const EmployerManagementModule: React.FC = () => {
                       </>
                     ) : (
                       <>
+                        <button
+                          type="button"
+                          onClick={() => renewEmployerAccount(emp.uid, 12)}
+                          className="px-2.5 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-colors flex items-center gap-1 cursor-pointer"
+                          title="Restore and extend accreditation by 12 months"
+                        >
+                          <Clock className="w-3.5 h-3.5" />
+                          <span>Renew +12 Mo</span>
+                        </button>
                         <button
                           type="button"
                           onClick={() => handleApprove(emp)}

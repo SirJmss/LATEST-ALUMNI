@@ -24,8 +24,6 @@ export const PublicProfileModal: React.FC = () => {
     setSelectedUserIdForModal,
     isConnected,
     hasPendingRequestWith,
-    isFollowing,
-    toggleFollow,
     sendFriendRequest,
     getOrCreateChat,
     setActiveTab
@@ -39,7 +37,6 @@ export const PublicProfileModal: React.FC = () => {
   const isSelf = currentUser?.uid === targetUser.uid;
   const connected = isConnected(targetUser.uid);
   const reqState = hasPendingRequestWith(targetUser.uid);
-  const following = isFollowing(targetUser.uid);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -75,17 +72,6 @@ export const PublicProfileModal: React.FC = () => {
 
             {!isSelf && (
               <div className="flex items-center gap-2 self-start sm:self-auto">
-                <button
-                  onClick={() => toggleFollow(targetUser.uid)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                    following
-                      ? 'bg-stone-100 text-stone-700 hover:bg-stone-200'
-                      : 'bg-white border border-stone-300 text-stone-700 hover:bg-stone-50'
-                  }`}
-                >
-                  {following ? 'Following' : '+ Follow'}
-                </button>
-
                 {connected ? (
                   <button
                     onClick={() => {
@@ -93,14 +79,14 @@ export const PublicProfileModal: React.FC = () => {
                       setSelectedUserIdForModal(null);
                       setActiveTab('messages');
                     }}
-                    className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs"
+                    className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs"
                   >
                     <MessageSquare className="w-3.5 h-3.5" />
-                    <span>Chat</span>
+                    <span>Message</span>
                   </button>
                 ) : reqState === 'sent' ? (
-                  <span className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-xs font-semibold">
-                    <span>Pending Approval</span>
+                  <span className="flex items-center gap-1.5 px-3.5 py-2 bg-stone-100 text-stone-700 border border-stone-200 rounded-xl text-xs font-semibold">
+                    <span>Friend Request Sent</span>
                   </span>
                 ) : reqState === 'received' ? (
                   <button
@@ -108,17 +94,17 @@ export const PublicProfileModal: React.FC = () => {
                       setSelectedUserIdForModal(null);
                       setActiveTab('network');
                     }}
-                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold cursor-pointer shadow-xs"
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold cursor-pointer shadow-xs"
                   >
                     Respond to Request
                   </button>
                 ) : (
                   <button
                     onClick={() => sendFriendRequest(targetUser.uid)}
-                    className="flex items-center gap-1.5 px-4 py-1.5 bg-[#8B181B] hover:bg-[#721316] text-white rounded-lg text-xs font-semibold shadow-xs hover:shadow-md cursor-pointer transition-all active:scale-98"
+                    className="flex items-center gap-1.5 px-4 py-2 bg-[#8B181B] hover:bg-[#721316] text-white rounded-xl text-xs font-semibold shadow-xs hover:shadow-md cursor-pointer transition-all active:scale-98"
                   >
                     <UserPlus className="w-3.5 h-3.5" />
-                    <span>Connect</span>
+                    <span>Add to Network</span>
                   </button>
                 )}
               </div>
@@ -155,19 +141,19 @@ export const PublicProfileModal: React.FC = () => {
             </div>
           </div>
 
-          {/* Metrics Row */}
+          {/* Metrics Row - Network & Academic Focus */}
           <div className="mt-4 p-3 bg-stone-50 rounded-xl border border-stone-200 grid grid-cols-3 text-center">
             <div>
-              <span className="text-base font-bold text-stone-900 block">{targetUser.connectionsCount}</span>
-              <span className="text-[11px] text-stone-500">Connections</span>
+              <span className="text-base font-bold text-stone-900 block">{targetUser.connectionsCount || 0}</span>
+              <span className="text-[11px] text-stone-500 font-medium">Connections</span>
             </div>
             <div>
-              <span className="text-base font-bold text-stone-900 block">{targetUser.followersCount}</span>
-              <span className="text-[11px] text-stone-500">Followers</span>
+              <span className="text-base font-bold text-stone-900 block font-mono">{targetUser.batch || '2024'}</span>
+              <span className="text-[11px] text-stone-500 font-medium">Graduation Batch</span>
             </div>
             <div>
-              <span className="text-base font-bold text-stone-900 block">{targetUser.followingCount}</span>
-              <span className="text-[11px] text-stone-500">Following</span>
+              <span className="text-base font-bold text-[#8B181B] block">{targetUser.isVerified ? 'Verified' : 'Member'}</span>
+              <span className="text-[11px] text-stone-500 font-medium">Portal Status</span>
             </div>
           </div>
 

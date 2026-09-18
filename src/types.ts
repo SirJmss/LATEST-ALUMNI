@@ -96,6 +96,18 @@ export interface UserProfile {
   employerVerificationStatus?: 'pending_verification' | 'verified' | 'rejected';
   employerVerificationNotes?: string;
   canPostJobs?: boolean;
+  profileCompleted?: boolean;
+  industry?: string;
+  yearsOfExperience?: string | number;
+  workLocation?: string;
+  privacyConsentAccepted?: boolean;
+  privacyConsentDate?: string;
+  zeroDisclosureAccepted?: boolean;
+  zeroDisclosureDate?: string;
+  employerExpirationDate?: string;
+  employerStatus?: 'active' | 'expired' | 'pending_renewal' | 'pending_verification';
+  employerRenewalRequested?: boolean;
+  employerRenewalNotes?: string;
 }
 
 export type FriendRequestStatus = 'pending' | 'accepted' | 'declined';
@@ -125,6 +137,12 @@ export interface ChatThread {
   lastMessageAt: string;
   unreadCount: Record<string, number>; // uid -> count
   otherUser?: UserProfile;
+  isGroupChat?: boolean;
+  groupName?: string;
+  groupDescription?: string;
+  eventId?: string;
+  isEventChat?: boolean;
+  adminUids?: string[];
 }
 
 export type NotificationType = 
@@ -175,6 +193,14 @@ export interface EventAttendee {
   rsvpDate: string;
 }
 
+export interface EventAttendanceRecord {
+  uid: string;
+  name: string;
+  status: 'attended' | 'not_attended' | 'pending';
+  checkedInAt?: string;
+  updatedBy?: string;
+}
+
 export interface AlumniEvent {
   id: string;
   title: string;
@@ -184,6 +210,7 @@ export interface AlumniEvent {
   startDate: string; // ISO string
   endDate: string;
   heroImageUrl: string;
+  eventImages?: string[];
   isVirtual: boolean;
   isImportant: boolean;
   maxAttendees: number;
@@ -194,6 +221,8 @@ export interface AlumniEvent {
   comments: EventComment[];
   userRsvp?: 'going' | 'interested' | 'not_going' | null;
   attendees?: EventAttendee[];
+  attendanceRecords?: EventAttendanceRecord[];
+  groupChatId?: string;
 }
 
 export interface Announcement {
@@ -279,16 +308,31 @@ export interface Chapter {
   description: string;
 }
 
+export interface TaggedAlumnus {
+  uid: string;
+  name: string;
+  batch?: string;
+  avatar?: string;
+}
+
 export interface CareerMilestone {
   id: string;
-  uid: string;
-  alumniName: string;
-  batch: string;
+  uid?: string;
+  alumniName?: string;
+  batch?: string;
   title: string;
-  company: string;
-  category: 'Promotion' | 'Startup' | 'Award' | 'Publication' | 'Leadership';
+  company?: string;
+  category: 'Promotion' | 'Startup' | 'Award' | 'Publication' | 'Leadership' | 'Campus Gallery' | 'Achievement' | string;
   date: string;
   description: string;
+  images?: string[];
+  taggedAlumniIds?: string[];
+  taggedAlumni?: TaggedAlumnus[];
+  likes?: string[];
+  authorId?: string;
+  authorName?: string;
+  authorRole?: UserRole;
+  createdAt?: string;
 }
 
 export interface UserNotificationSettings {

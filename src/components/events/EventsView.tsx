@@ -23,7 +23,9 @@ import {
   Search,
   UserCheck,
   UserPlus,
-  Mail
+  Mail,
+  Upload,
+  Image as ImageIcon
 } from 'lucide-react';
 import { useAlumni } from '../../context/AlumniContext';
 import { AlumniEvent } from '../../types';
@@ -55,10 +57,11 @@ export const EventsView: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [commentInput, setCommentInput] = useState('');
-  const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({
-    evt_homecoming_2026: true // Open reunion discussion thread by default for high engagement
-  });
-  const [cardCommentInputs, setCardCommentInputs] = useState<Record<string, string>>({});
+  
+  // Side-panel comment drawer state (replaces messy inline card accordion)
+  const [sidePanelEventId, setSidePanelEventId] = useState<string | null>(null);
+  const [sidePanelCommentInput, setSidePanelCommentInput] = useState('');
+  const [isDraggingHeroImage, setIsDraggingHeroImage] = useState(false);
 
   // Form State for Create / Edit
   const [formTitle, setFormTitle] = useState('');
@@ -186,6 +189,44 @@ export const EventsView: React.FC = () => {
     setShowCreateModal(false);
   };
 
+  const sidePanelEvent = useMemo(() => {
+    if (!sidePanelEventId) return null;
+    return events.find((e) => e.id === sidePanelEventId) || null;
+  }, [events, sidePanelEventId]);
+
+  const handleSidePanelCommentSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!sidePanelEventId || !sidePanelCommentInput.trim()) return;
+    addCommentToEvent(sidePanelEventId, sidePanelCommentInput.trim());
+    setSidePanelCommentInput('');
+  };
+
+  const handleHeroFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setFormHeroImage(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleHeroFileDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingHeroImage(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setFormHeroImage(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handlePostComment = (eventId: string) => {
     if (!commentInput.trim()) return;
     addCommentToEvent(eventId, commentInput);
@@ -195,20 +236,6 @@ export const EventsView: React.FC = () => {
       const updated = events.find((e) => e.id === eventId);
       if (updated) setSelectedEventForDetail(updated);
     }
-  };
-
-  const handlePostCardComment = (eventId: string) => {
-    const text = cardCommentInputs[eventId];
-    if (!text || !text.trim()) return;
-    addCommentToEvent(eventId, text.trim());
-    setCardCommentInputs((prev) => ({ ...prev, [eventId]: '' }));
-  };
-
-  const toggleThread = (eventId: string) => {
-    setExpandedThreads((prev) => ({
-      ...prev,
-      [eventId]: !prev[eventId]
-    }));
   };
 
   return (
@@ -278,6 +305,30 @@ export const EventsView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Upcoming Events Active Filter Notice */}
+      {filterType === 'upcoming' && (
+        <div className="bg-amber-50/80 border border-amber-200/80 p-3.5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-900 shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 rounded-lg bg-amber-100 text-amber-800 shrink-0">
+              <Calendar className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="font-bold">Prioritizing Upcoming Gatherings ({filteredEvents.length})</span>
+              <p className="text-[11px] text-amber-800/80 mt-0.5">
+                Past events are automatically filtered out to ensure your schedule stays clear and actionable.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFilterType('all')}
+            className="text-[11px] font-bold text-amber-900 bg-amber-200/60 hover:bg-amber-200 px-3 py-1.5 rounded-lg transition-colors shrink-0 self-start sm:self-auto cursor-pointer"
+          >
+            View Past Archives ({events.filter((e) => new Date(e.startDate) < now).length})
+          </button>
+        </div>
+      )}
 
       {/* Events Grid */}
       {filteredEvents.length === 0 ? (
@@ -460,132 +511,16 @@ export const EventsView: React.FC = () => {
                       </button>
 
                       <button
-                        onClick={() => toggleThread(evt.id)}
-                        className="flex items-center gap-1 text-xs text-stone-600 hover:text-[#991B1B] font-medium"
-                        title="Toggle Discussion Thread"
+                        type="button"
+                        onClick={() => setSidePanelEventId(evt.id)}
+                        className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-stone-700 hover:text-[#8B181B] bg-stone-100 hover:bg-red-50 rounded-lg transition-colors cursor-pointer border border-stone-200/70"
+                        title="Open comments side-panel"
                       >
-                        <MessageCircle className="w-3.5 h-3.5 text-[#991B1B]" />
-                        <span>{(evt.comments || []).length}</span>
+                        <MessageCircle className="w-3.5 h-3.5 text-[#8B181B]" />
+                        <span>Comments ({(evt.comments || []).length})</span>
                       </button>
                     </div>
                   </div>
-
-                  {/* Dedicated Comment Section / Discussion Thread Button */}
-                  <div className="mb-2.5">
-                    <button
-                      type="button"
-                      onClick={() => toggleThread(evt.id)}
-                      className={`w-full py-2 px-3 flex items-center justify-between rounded-xl text-xs font-bold transition-all border ${
-                        expandedThreads[evt.id]
-                          ? 'bg-[#991B1B] text-white border-[#991B1B] shadow-sm'
-                          : 'bg-white hover:bg-stone-50 text-stone-800 border-stone-200 shadow-2xs'
-                      }`}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <MessageCircle className={`w-4 h-4 ${expandedThreads[evt.id] ? 'text-white' : 'text-[#991B1B]'}`} />
-                        <span>{evt.type === 'reunion' ? 'Reunion Discussion Thread' : 'Discussion Thread & Comments'}</span>
-                        <span
-                          className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-                            expandedThreads[evt.id] ? 'bg-white/20 text-white' : 'bg-red-50 text-[#991B1B]'
-                          }`}
-                        >
-                          {(evt.comments || []).length}
-                        </span>
-                      </div>
-                      {expandedThreads[evt.id] ? (
-                        <ChevronUp className="w-4 h-4 text-white" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-stone-400" />
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Inline Discussion Thread Accordion */}
-                  {expandedThreads[evt.id] && (
-                    <div className="mb-3 pt-2.5 border-t border-stone-200 animate-in fade-in duration-150">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-stone-600 flex items-center gap-1">
-                          <MessageCircle className="w-3 h-3 text-[#991B1B]" />
-                          <span>Community Discussion</span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedEventForDetail(evt)}
-                          className="text-[10px] font-bold text-[#991B1B] hover:underline"
-                        >
-                          Fullscreen View ↗
-                        </button>
-                      </div>
-
-                      {/* Comments stream */}
-                      <div className="space-y-2 max-h-52 overflow-y-auto mb-2.5 pr-1">
-                        {(evt.comments || []).length === 0 ? (
-                          <div className="py-3 text-center bg-white rounded-xl border border-stone-200 text-stone-400 text-xs italic">
-                            No comments yet. Be the first to start the discussion!
-                          </div>
-                        ) : (
-                          (evt.comments || []).map((comm) => (
-                            <div
-                              key={comm.id}
-                              className="p-2.5 bg-white rounded-xl border border-stone-200/80 shadow-2xs flex items-start gap-2.5"
-                            >
-                              <img
-                                src={comm.authorAvatar}
-                                alt={comm.authorName}
-                                className="w-7 h-7 rounded-full object-cover shrink-0 border border-stone-200"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center justify-between gap-1">
-                                  <span className="text-xs font-bold text-stone-900 truncate">
-                                    {comm.authorName}
-                                  </span>
-                                  <span className="text-[10px] text-stone-400 shrink-0">
-                                    {new Date(comm.createdAt).toLocaleDateString([], {
-                                      month: 'short',
-                                      day: 'numeric'
-                                    })}
-                                  </span>
-                                </div>
-                                <p className="text-xs text-stone-700 mt-0.5 leading-relaxed break-words">
-                                  {comm.text}
-                                </p>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-
-                      {/* Comment Input Box */}
-                      <form
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          handlePostCardComment(evt.id);
-                        }}
-                        className="flex items-center gap-1.5"
-                      >
-                        <input
-                          type="text"
-                          value={cardCommentInputs[evt.id] || ''}
-                          onChange={(e) =>
-                            setCardCommentInputs((prev) => ({
-                              ...prev,
-                              [evt.id]: e.target.value
-                            }))
-                          }
-                          placeholder={evt.type === 'reunion' ? "Ask about reunion, batch tables, or greet..." : "Write a comment or question..."}
-                          className="flex-1 px-3 py-1.5 text-xs bg-white border border-stone-200 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-[#991B1B] focus:border-[#991B1B]"
-                        />
-                        <button
-                          type="submit"
-                          disabled={!cardCommentInputs[evt.id]?.trim()}
-                          className="px-3 py-1.5 bg-[#991B1B] hover:bg-[#7f1616] disabled:opacity-40 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
-                        >
-                          <Send className="w-3 h-3" />
-                          <span>Post</span>
-                        </button>
-                      </form>
-                    </div>
-                  )}
 
                   {/* RSVP & Attendance Tracker Component */}
                   <div className="pt-3 border-t border-stone-200/80 flex flex-col gap-2.5">
@@ -1247,14 +1182,92 @@ export const EventsView: React.FC = () => {
               </div>
 
               <div>
-                <label className="font-semibold text-stone-700 block mb-1">Hero Image URL</label>
-                <input
-                  type="url"
-                  value={formHeroImage}
-                  onChange={(e) => setFormHeroImage(e.target.value)}
-                  placeholder="https://..."
-                  className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg"
-                />
+                <label className="font-semibold text-stone-700 block mb-1.5">
+                  Event Banner Image (Upload or URL) *
+                </label>
+
+                {/* Drag and Drop Direct Upload Area */}
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDraggingHeroImage(true);
+                  }}
+                  onDragLeave={() => setIsDraggingHeroImage(false)}
+                  onDrop={handleHeroFileDrop}
+                  className={`border-2 border-dashed rounded-xl p-3.5 text-center transition-all ${
+                    isDraggingHeroImage
+                      ? 'border-[#991B1B] bg-red-50/60 ring-2 ring-red-200'
+                      : 'border-stone-300 bg-stone-50/70 hover:bg-stone-100/70'
+                  }`}
+                >
+                  {formHeroImage ? (
+                    <div className="relative group rounded-lg overflow-hidden border border-stone-200 bg-stone-100 max-h-48">
+                      <img
+                        src={formHeroImage}
+                        alt="Event Banner Preview"
+                        className="w-full h-40 object-cover"
+                      />
+                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 p-2">
+                        <label className="px-3 py-1.5 bg-white text-stone-800 rounded-lg text-xs font-bold hover:bg-stone-100 cursor-pointer shadow-sm flex items-center gap-1.5">
+                          <Upload className="w-3.5 h-3.5 text-stone-600" />
+                          <span>Replace Image</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleHeroFileInput}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setFormHeroImage('')}
+                          className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 shadow-sm flex items-center gap-1"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Remove</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <label className="cursor-pointer flex flex-col items-center justify-center py-4">
+                      <div className="w-10 h-10 rounded-full bg-stone-100 text-stone-500 flex items-center justify-center mb-2 shadow-2xs">
+                        <Upload className="w-5 h-5 text-stone-600" />
+                      </div>
+                      <span className="text-xs font-bold text-stone-800">
+                        Drag & Drop event banner image here
+                      </span>
+                      <span className="text-[11px] text-stone-500 mt-0.5">
+                        or click to browse local image files (PNG, JPG, WebP)
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleHeroFileInput}
+                      />
+                    </label>
+                  )}
+                </div>
+
+                {/* Optional Image URL Input */}
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    type="url"
+                    value={formHeroImage}
+                    onChange={(e) => setFormHeroImage(e.target.value)}
+                    placeholder="Or paste an image web URL: https://..."
+                    className="flex-1 px-3 py-1.5 text-xs bg-stone-50 border border-stone-200 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                  />
+                  {formHeroImage && (
+                    <button
+                      type="button"
+                      onClick={() => setFormHeroImage('')}
+                      className="px-2 py-1.5 text-xs text-stone-500 hover:text-red-600 hover:bg-stone-100 rounded-lg"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="flex items-center gap-6 pt-1">
@@ -1298,6 +1311,131 @@ export const EventsView: React.FC = () => {
           </div>
         </div>
       )}
+      {/* SIDE-PANEL / HOVERING COMMENT SYSTEM */}
+      {sidePanelEvent && (
+        <div className="fixed inset-0 z-50 overflow-hidden animate-in fade-in duration-150">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
+            onClick={() => setSidePanelEventId(null)}
+          />
+
+          {/* Drawer Panel */}
+          <div className="fixed inset-y-0 right-0 max-w-md w-full bg-white shadow-2xl flex flex-col z-10 border-l border-stone-200 animate-in slide-in-from-right duration-200">
+            {/* Drawer Header */}
+            <div className="p-4 border-b border-stone-200 flex items-center justify-between bg-stone-50/90">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="p-2 rounded-xl bg-red-50 text-[#8B181B] shrink-0 border border-red-100">
+                  <MessageCircle className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-stone-900 truncate">
+                    {sidePanelEvent.title}
+                  </h3>
+                  <div className="flex items-center gap-2 text-[11px] text-stone-500 mt-0.5">
+                    <span className="capitalize font-semibold text-[#8B181B]">
+                      {sidePanelEvent.type}
+                    </span>
+                    <span>•</span>
+                    <span>{(sidePanelEvent.comments || []).length} Comments</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedEventForDetail(sidePanelEvent);
+                    setSidePanelEventId(null);
+                  }}
+                  className="px-2.5 py-1 text-[11px] font-bold text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                  title="View full event details"
+                >
+                  Full Details ↗
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSidePanelEventId(null)}
+                  className="p-1.5 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-200/60 transition-colors"
+                  title="Close comments drawer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Comments Stream */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {(sidePanelEvent.comments || []).length === 0 ? (
+                <div className="text-center py-16 px-4">
+                  <div className="w-12 h-12 rounded-full bg-stone-100 text-stone-400 mx-auto flex items-center justify-center mb-3">
+                    <MessageCircle className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-sm font-bold text-stone-800">No Comments Yet</h4>
+                  <p className="text-xs text-stone-500 mt-1 max-w-xs mx-auto">
+                    Be the first to share questions, ask about tickets, or coordinate reunion meetups with fellow alumni!
+                  </p>
+                </div>
+              ) : (
+                (sidePanelEvent.comments || []).map((comm) => (
+                  <div
+                    key={comm.id}
+                    className="p-3 bg-stone-50 rounded-xl border border-stone-200/80 shadow-2xs space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <img
+                          src={comm.authorAvatar}
+                          alt={comm.authorName}
+                          className="w-6 h-6 rounded-full object-cover border border-stone-200"
+                        />
+                        <span className="text-xs font-bold text-stone-900 truncate">
+                          {comm.authorName}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-stone-400 shrink-0">
+                        {new Date(comm.createdAt).toLocaleDateString([], {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </span>
+                    </div>
+                    <p className="text-xs text-stone-700 leading-relaxed pl-8 break-words">
+                      {comm.text}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Drawer Comment Form */}
+            <form
+              onSubmit={handleSidePanelCommentSubmit}
+              className="p-3.5 border-t border-stone-200 bg-stone-50/70 flex items-center gap-2"
+            >
+              <input
+                type="text"
+                value={sidePanelCommentInput}
+                onChange={(e) => setSidePanelCommentInput(e.target.value)}
+                placeholder="Write a comment, question, or greeting..."
+                className="flex-1 px-3.5 py-2 text-xs bg-white border border-stone-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-[#991B1B] focus:border-[#991B1B]"
+              />
+              <button
+                type="submit"
+                disabled={!sidePanelCommentInput.trim()}
+                className="px-4 py-2 bg-[#991B1B] hover:bg-[#7f1616] disabled:opacity-40 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs shrink-0 cursor-pointer"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Post</span>
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Cross-App Share Modal */}
       <ShareModal
         isOpen={!!shareItem}

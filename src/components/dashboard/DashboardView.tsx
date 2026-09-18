@@ -29,6 +29,7 @@ import { useAlumni } from '../../context/AlumniContext';
 import { filterAnnouncementsForUser, calculateProfileCompletion } from '../../services/automationService';
 import { RecentActivityFeed } from './RecentActivityFeed';
 import { AlumniDistributionChart } from './AlumniDistributionChart';
+import { HelpAndInfoSection } from './HelpAndInfoSection';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -67,8 +68,6 @@ export const DashboardView: React.FC = () => {
     setActiveTab,
     getOrCreateChat,
     sendFriendRequest,
-    toggleFollow,
-    isFollowing,
     isConnected,
     hasPendingRequestWith,
     setSelectedUserIdForModal,
@@ -259,10 +258,12 @@ export const DashboardView: React.FC = () => {
         </div>
       </motion.div>
 
-      {/* Alumni Demographics & Cohort Distribution Visualization */}
-      <motion.div variants={cardItemVariants}>
-        <AlumniDistributionChart users={users} currentUser={currentUser} />
-      </motion.div>
+      {/* Alumni Demographics & Cohort Distribution Visualization - Strictly restricted to authorized roles (Admin, Registrar) and hidden from Employers */}
+      {(currentUser?.role === 'admin' || currentUser?.role === 'registrar' || currentUser?.role === 'superadmin' || currentUser?.role === 'staff') && (
+        <motion.div variants={cardItemVariants}>
+          <AlumniDistributionChart users={users} currentUser={currentUser} />
+        </motion.div>
+      )}
 
       {/* Quick Action Circles with Live Badges */}
       <motion.div variants={cardItemVariants} className="bg-white p-5 rounded-xl border border-stone-200 shadow-2xs">
@@ -657,7 +658,6 @@ export const DashboardView: React.FC = () => {
           {alumniNearYou.map((alumnus) => {
             const connected = isConnected(alumnus.uid);
             const reqStatus = hasPendingRequestWith(alumnus.uid);
-            const following = isFollowing(alumnus.uid);
 
             return (
               <div
@@ -672,16 +672,9 @@ export const DashboardView: React.FC = () => {
                       onClick={() => setSelectedUserIdForModal(alumnus.uid)}
                       className="w-12 h-12 rounded-full object-cover border border-stone-300 cursor-pointer hover:opacity-90"
                     />
-                    <button
-                      onClick={() => toggleFollow(alumnus.uid)}
-                      className={`text-xs px-2 py-1 rounded-md font-medium transition-colors ${
-                        following
-                          ? 'bg-stone-200 text-stone-700'
-                          : 'bg-white border border-stone-300 text-stone-700 hover:bg-stone-100'
-                      }`}
-                    >
-                      {following ? 'Following' : '+ Follow'}
-                    </button>
+                    <span className="text-[10px] font-bold text-stone-500 bg-stone-200/70 px-2 py-0.5 rounded-full">
+                      Class of {alumnus.batch || '2024'}
+                    </span>
                   </div>
 
                   <div className="mt-3">
@@ -885,6 +878,11 @@ export const DashboardView: React.FC = () => {
             </button>
           </div>
         </div>
+      </motion.div>
+
+      {/* Help and Information Section at the bottom of the User Dashboard */}
+      <motion.div variants={cardItemVariants}>
+        <HelpAndInfoSection />
       </motion.div>
 
       {/* Selected Announcement Detail Modal */}

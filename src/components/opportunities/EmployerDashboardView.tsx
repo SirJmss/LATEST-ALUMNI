@@ -19,7 +19,8 @@ import {
   ExternalLink,
   ChevronRight,
   TrendingUp,
-  Award
+  Award,
+  ShieldCheck
 } from 'lucide-react';
 import { useAlumni } from '../../context/AlumniContext';
 import { Opportunity, JobApplication } from '../../types';
@@ -37,12 +38,16 @@ export const EmployerDashboardView: React.FC<EmployerDashboardViewProps> = ({ on
     createOpportunity,
     showToast,
     setSelectedUserIdForModal,
-    setActiveTab
+    setActiveTab,
+    isEmployerExpired,
+    requestEmployerRenewal
   } = useAlumni();
 
   // Modal states
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedJobForApplicants, setSelectedJobForApplicants] = useState<Opportunity | null>(null);
+  const [showRenewalModal, setShowRenewalModal] = useState(false);
+  const [renewalNotes, setRenewalNotes] = useState('');
 
   // Job creation form states
   const [title, setTitle] = useState('');
@@ -80,7 +85,20 @@ export const EmployerDashboardView: React.FC<EmployerDashboardViewProps> = ({ on
   const isVerified = currentUser.employerVerificationStatus === 'verified';
   const isPending = (currentUser.employerVerificationStatus || 'pending_verification') === 'pending_verification';
   const isRejected = currentUser.employerVerificationStatus === 'rejected';
-  const canPost = currentUser.canPostJobs ?? isVerified;
+  
+  // Expiration & Renewal Logic
+  const isExpired = isEmployerExpired(currentUser);
+  const expiryDate = currentUser.employerExpirationDate
+    ? new Date(currentUser.employerExpirationDate)
+    : currentUser.createdAt
+    ? new Date(new Date(currentUser.createdAt).getTime() + 365 * 86400000)
+    : null;
+  const daysUntilExpiry = expiryDate ? Math.ceil((expiryDate.getTime() - Date.now()) / (86400000)) : null;
+  const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry <= 30 && daysUntilExpiry > 0;
+  const isRenewalPending = currentUser.employerStatus === 'pending_renewal' || currentUser.employerRenewalRequested;
+
+  // Job posting permission: Requires active accreditation and unexpired status
+  const canPost = (currentUser.canPostJobs ?? isVerified) && !isExpired && !isPending && !isRejected;
 
   // Filter jobs posted by this employer
   const myOpportunities = useMemo(() => {
@@ -264,6 +282,89 @@ export const EmployerDashboardView: React.FC<EmployerDashboardViewProps> = ({ on
               </p>
             </div>
           </div>
+        )}
+
+        {/* Accreditation Expiry & Renewal Alerts for Accredited Employers */}
+        {isVerified && (
+          <>
+            {isRenewalPending ? (
+              <div className="mt-5 p-4 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 flex items-start justify-between gap-3 shadow-2xs">
+                <div className="flex items-start gap-3">
+                  <Clock className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                  <div className="text-xs leading-relaxed">
+                    <h4 className="font-bold text-blue-950">Accreditation Renewal Under Review</h4>
+                    <p className="mt-0.5 text-blue-800">
+                      Your institutional partner renewal request has been submitted to University Career Services. Administrator confirmation will extend your accreditation for an additional 12 months.
+                    </p>
+                    {currentUser.employerRenewalNotes && (
+                      <p className="mt-1.5 text-[11px] text-blue-950 bg-blue-100/60 p-2 rounded-lg border border-blue-200">
+                        <span className="font-bold">Submitted Notes: </span>{currentUser.employerRenewalNotes}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <span className="px-2.5 py-1 text-[11px] font-bold bg-blue-200/70 text-blue-900 rounded-lg shrink-0">
+                  Pending Review
+                </span>
+              </div>
+            ) : isExpired ? (
+              <div className="mt-5 p-4 rounded-xl bg-rose-50 border border-rose-300 text-rose-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                  <div className="text-xs leading-relaxed">
+                    <h4 className="font-bold text-rose-900">Partner Accreditation Expired</h4>
+                    <p className="mt-0.5 text-rose-800">
+                      Your annual corporate partner accreditation expired on {expiryDate ? expiryDate.toLocaleDateString() : 'recent date'}. Job posting privileges and applicant outreach are temporarily paused until renewal is completed.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowRenewalModal(true)}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs shrink-0 cursor-pointer self-start sm:self-auto"
+                >
+                  Request Accreditation Renewal
+                </button>
+              </div>
+            ) : isExpiringSoon ? (
+              <div className="mt-5 p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                <div className="flex items-start gap-3">
+                  <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="text-xs leading-relaxed">
+                    <h4 className="font-bold text-amber-900">
+                      Accreditation Renewal Notice ({daysUntilExpiry} Days Remaining)
+                    </h4>
+                    <p className="mt-0.5 text-amber-800">
+                      Your corporate partner accreditation is valid through {expiryDate?.toLocaleDateString()}. Request an early renewal to ensure uninterrupted access for recruitment and campus placement.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowRenewalModal(true)}
+                  className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs shrink-0 cursor-pointer self-start sm:self-auto"
+                >
+                  Renew Credentials
+                </button>
+              </div>
+            ) : expiryDate ? (
+              <div className="mt-4 px-3.5 py-2.5 rounded-xl bg-stone-50 border border-stone-200 flex items-center justify-between text-xs text-stone-600">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>
+                    Accreditation Active & Valid through <strong>{expiryDate.toLocaleDateString()}</strong> ({daysUntilExpiry} days remaining)
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowRenewalModal(true)}
+                  className="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                >
+                  Request Early Extension
+                </button>
+              </div>
+            ) : null}
+          </>
         )}
 
         {/* Overview Metrics Cards */}
@@ -617,6 +718,73 @@ export const EmployerDashboardView: React.FC<EmployerDashboardViewProps> = ({ on
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* ACCREDITATION RENEWAL REQUEST MODAL */}
+      {showRenewalModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-stone-200 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-4 border-b border-stone-100">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-amber-50 text-amber-800 border border-amber-200">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-stone-900">Request Accreditation Renewal</h3>
+                  <p className="text-xs text-stone-500 mt-0.5">Extend institutional partnership for 12 months</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRenewalModal(false)}
+                className="p-1 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <div className="p-3 bg-stone-50 rounded-xl text-xs text-stone-600 border border-stone-200/80">
+                <p>
+                  Accreditation renewals are verified by the <strong>St. Cecilia’s College Alumni Career Services Desk</strong>. Approval extends your corporate recruiting privileges and candidate outreach for an additional 12-month period.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-stone-700 block mb-1">
+                  Renewal Notes & Compliance Information (Optional)
+                </label>
+                <textarea
+                  value={renewalNotes}
+                  onChange={(e) => setRenewalNotes(e.target.value)}
+                  placeholder="e.g., Updated business permits submitted, requested continuation of engineering and IT hiring partnership..."
+                  rows={3}
+                  className="w-full px-3 py-2 text-xs bg-white border border-stone-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-[#991B1B]"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-stone-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRenewalModal(false)}
+                  className="px-4 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-100 rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    requestEmployerRenewal(renewalNotes.trim() || 'Standard annual partner renewal requested.');
+                    setShowRenewalModal(false);
+                    setRenewalNotes('');
+                  }}
+                  className="px-4 py-2 text-xs font-bold text-white bg-[#991B1B] hover:bg-[#7F1D1D] rounded-xl shadow-xs transition-colors cursor-pointer"
+                >
+                  Submit Renewal Request
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

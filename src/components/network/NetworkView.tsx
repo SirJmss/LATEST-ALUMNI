@@ -26,19 +26,16 @@ export const NetworkView: React.FC = () => {
     declineFriendRequest,
     cancelFriendRequest,
     sendFriendRequest,
-    toggleFollow,
-    isFollowing,
     isConnected,
     hasPendingRequestWith,
     connectionIds,
-    followingIds,
     getOrCreateChat,
     setActiveTab,
     setSelectedUserIdForModal,
     permissions
   } = useAlumni();
 
-  const [activeSubTab, setActiveSubTab] = useState<'directory' | 'connections' | 'requests' | 'following'>('directory');
+  const [activeSubTab, setActiveSubTab] = useState<'directory' | 'recommended' | 'connections' | 'requests'>('directory');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBatch, setSelectedBatch] = useState<string>('all');
   const [selectedCourse, setSelectedCourse] = useState<string>('all');
@@ -81,10 +78,18 @@ export const NetworkView: React.FC = () => {
     return users.filter((u) => connectionIds.includes(u.uid));
   }, [users, connectionIds]);
 
-  // Following List
-  const followedUsers = useMemo(() => {
-    return users.filter((u) => followingIds.includes(u.uid));
-  }, [users, followingIds]);
+  // Recommended Friends / People You May Know
+  const recommendedUsers = useMemo(() => {
+    if (!currentUser) return [];
+    return users.filter((u) => {
+      if (u.uid === currentUser.uid) return false;
+      if (connectionIds.includes(u.uid)) return false;
+      const sameBatch = u.batch && currentUser.batch && u.batch === currentUser.batch;
+      const sameCourse = u.course && currentUser.course && u.course.toLowerCase() === currentUser.course.toLowerCase();
+      const sameLocation = u.location && currentUser.location && u.location.toLowerCase().includes(currentUser.location.toLowerCase());
+      return sameBatch || sameCourse || sameLocation;
+    });
+  }, [users, currentUser, connectionIds]);
 
   // Filtered Directory - fully findable across all attributes
   const filteredDirectory = useMemo(() => {
@@ -167,9 +172,22 @@ export const NetworkView: React.FC = () => {
                   : 'text-stone-600 hover:text-stone-900'
               }`}
             >
-              <span>Find Alumni</span>
+              <span>Directory (View All)</span>
               <span className="px-1.5 py-0.2 bg-blue-100 text-blue-800 rounded-full text-[10px] font-bold">
                 {filteredDirectory.length}
+              </span>
+            </button>
+            <button
+              onClick={() => setActiveSubTab('recommended')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 ${
+                activeSubTab === 'recommended'
+                  ? 'bg-white text-stone-900 shadow-xs'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              <span>Recommended Friends</span>
+              <span className="px-1.5 py-0.2 bg-amber-100 text-amber-900 rounded-full text-[10px] font-bold">
+                {recommendedUsers.length}
               </span>
             </button>
             <button
@@ -180,7 +198,7 @@ export const NetworkView: React.FC = () => {
                   : 'text-stone-600 hover:text-stone-900'
               }`}
             >
-              <span>Connections</span>
+              <span>My Network</span>
               <span className="px-1.5 py-0.2 bg-stone-200 text-stone-700 rounded-full text-[10px]">
                 {connectedUsers.length}
               </span>
@@ -199,19 +217,6 @@ export const NetworkView: React.FC = () => {
                   {receivedRequests.length}
                 </span>
               )}
-            </button>
-            <button
-              onClick={() => setActiveSubTab('following')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 ${
-                activeSubTab === 'following'
-                  ? 'bg-white text-stone-900 shadow-xs'
-                  : 'text-stone-600 hover:text-stone-900'
-              }`}
-            >
-              <span>Following</span>
-              <span className="px-1.5 py-0.2 bg-stone-200 text-stone-700 rounded-full text-[10px]">
-                {followedUsers.length}
-              </span>
             </button>
           </div>
         </div>
@@ -418,7 +423,6 @@ export const NetworkView: React.FC = () => {
               {filteredDirectory.map((user) => {
                 const connected = isConnected(user.uid);
                 const reqState = hasPendingRequestWith(user.uid);
-                const following = isFollowing(user.uid);
 
                 return (
                   <div
@@ -433,16 +437,9 @@ export const NetworkView: React.FC = () => {
                           onClick={() => setSelectedUserIdForModal(user.uid)}
                           className="w-14 h-14 rounded-full object-cover border border-stone-200 cursor-pointer hover:opacity-90"
                         />
-                        <button
-                          onClick={() => toggleFollow(user.uid)}
-                          className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${
-                            following
-                              ? 'bg-stone-100 text-stone-700'
-                              : 'bg-white border border-stone-300 text-stone-700 hover:bg-stone-50'
-                          }`}
-                        >
-                          {following ? 'Following' : '+ Follow'}
-                        </button>
+                        <span className="text-[11px] font-bold text-stone-600 bg-stone-100 border border-stone-200 px-2.5 py-1 rounded-lg">
+                          Class of {user.batch || '2024'}
+                        </span>
                       </div>
 
                       <div className="mt-3">
@@ -722,56 +719,118 @@ export const NetworkView: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 4: FOLLOWING */}
-      {activeSubTab === 'following' && (
+      {/* TAB 4: RECOMMENDED FRIENDS / PEOPLE YOU MAY KNOW */}
+      {activeSubTab === 'recommended' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-stone-900">Alumni You Follow ({followedUsers.length})</h2>
-            <span className="text-xs text-stone-500">Updates will appear in your network feed</span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h2 className="text-base font-bold text-stone-900">Recommended Friends / People You May Know ({recommendedUsers.length})</h2>
+              <p className="text-xs text-stone-500 mt-0.5">
+                Alumni from your graduation batch, degree program, and local alumni chapters
+              </p>
+            </div>
+            <button
+              onClick={() => setActiveSubTab('directory')}
+              className="text-xs font-semibold text-[#8B181B] hover:underline self-start sm:self-auto"
+            >
+              View All Directory →
+            </button>
           </div>
 
-          {followedUsers.length === 0 ? (
+          {recommendedUsers.length === 0 ? (
             <div className="bg-white p-12 text-center rounded-xl border border-stone-200">
               <Users className="w-10 h-10 text-stone-300 mx-auto mb-2" />
-              <p className="text-sm font-semibold text-stone-700">Not following anyone yet</p>
+              <p className="text-sm font-semibold text-stone-700">No new recommendations available</p>
               <p className="text-xs text-stone-400 mt-1">
-                Follow notable alumni, class leaders, and university directors.
+                You can browse the full directory above to find batchmates, mentors, and faculty.
               </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {followedUsers.map((user) => (
-                <div
-                  key={user.uid}
-                  className="bg-white rounded-xl border border-stone-200 p-4 flex items-center justify-between shadow-2xs"
-                >
+              {recommendedUsers.map((user) => {
+                const reqState = hasPendingRequestWith(user.uid);
+                const isSameBatch = user.batch && currentUser?.batch && user.batch === currentUser.batch;
+                const isSameCourse = user.course && currentUser?.course && user.course.toLowerCase() === currentUser.course.toLowerCase();
+
+                return (
                   <div
-                    className="flex items-center gap-3 cursor-pointer"
-                    onClick={() => setSelectedUserIdForModal(user.uid)}
+                    key={user.uid}
+                    className="bg-white rounded-xl border border-stone-200 p-4 flex flex-col justify-between shadow-2xs hover:shadow-xs transition-all"
                   >
-                    <img
-                      src={user.profilePictureUrl}
-                      alt={user.name}
-                      className="w-11 h-11 rounded-full object-cover border border-stone-200"
-                    />
                     <div>
-                      <h4 className="text-sm font-bold text-stone-900 hover:text-blue-600">
-                        {user.name}
-                      </h4>
-                      <p className="text-xs text-stone-500">
-                        Batch {user.batch} • {user.role.toUpperCase()}
-                      </p>
+                      <div className="flex items-start justify-between gap-3">
+                        <img
+                          src={user.profilePictureUrl}
+                          alt={user.name}
+                          onClick={() => setSelectedUserIdForModal(user.uid)}
+                          className="w-13 h-13 rounded-full object-cover border border-stone-200 cursor-pointer hover:opacity-90 shrink-0"
+                        />
+                        <div className="flex flex-col items-end gap-1">
+                          {isSameBatch && (
+                            <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md">
+                              Batchmate ('{user.batch?.slice(-2) || '24'})
+                            </span>
+                          )}
+                          {isSameCourse && (
+                            <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
+                              Same Degree
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-3">
+                        <h4
+                          onClick={() => setSelectedUserIdForModal(user.uid)}
+                          className="text-sm font-bold text-stone-900 hover:text-blue-600 cursor-pointer"
+                        >
+                          {user.name}
+                        </h4>
+                        <p className="text-xs text-stone-600 mt-0.5 font-medium">{user.course || 'Alumnus'}</p>
+                        <p className="text-xs text-stone-500 line-clamp-2 mt-1">
+                          {user.headline || user.currentPosition || 'St. Cecilia’s College Alumnus'}
+                        </p>
+                        {user.location && (
+                          <p className="text-[11px] text-stone-400 mt-1 flex items-center gap-1">
+                            <MapPin className="w-3 h-3 text-stone-400 shrink-0" />
+                            <span className="truncate">{user.location}</span>
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-stone-100 flex items-center gap-2">
+                      <button
+                        onClick={() => setSelectedUserIdForModal(user.uid)}
+                        className="flex-1 py-1.5 px-2 text-xs font-semibold text-stone-700 bg-stone-100 hover:bg-stone-200 rounded-lg text-center transition-colors"
+                      >
+                        Profile
+                      </button>
+
+                      {reqState === 'sent' ? (
+                        <span className="flex-1 py-1.5 px-2 text-xs font-semibold text-stone-500 bg-stone-50 border border-stone-200 rounded-lg text-center">
+                          Pending
+                        </span>
+                      ) : reqState === 'received' ? (
+                        <button
+                          onClick={() => setActiveSubTab('requests')}
+                          className="flex-1 py-1.5 px-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg text-center shadow-2xs"
+                        >
+                          Respond
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => sendFriendRequest(user.uid)}
+                          className="flex-1 py-1.5 px-2 text-xs font-semibold text-white bg-[#8B181B] hover:bg-[#721316] rounded-lg text-center shadow-2xs flex items-center justify-center gap-1 transition-colors"
+                        >
+                          <UserPlus className="w-3.5 h-3.5" />
+                          <span>Connect</span>
+                        </button>
+                      )}
                     </div>
                   </div>
-
-                  <button
-                    onClick={() => toggleFollow(user.uid)}
-                    className="px-3 py-1.5 text-xs text-stone-600 hover:bg-stone-100 border border-stone-300 rounded-lg font-medium"
-                  >
-                    Unfollow
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

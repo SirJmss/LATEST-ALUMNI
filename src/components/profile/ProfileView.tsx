@@ -188,21 +188,21 @@ export const ProfileView: React.FC = () => {
           <div className="mt-5 p-3.5 bg-stone-50 rounded-xl border border-stone-200 grid grid-cols-3 text-center">
             <div>
               <span className="text-lg font-bold text-stone-900 block">
-                {currentUser.connectionsCount}
+                {currentUser.connectionsCount || 0}
               </span>
-              <span className="text-xs text-stone-500">Connections</span>
+              <span className="text-xs text-stone-500 font-medium">Alumni Network</span>
             </div>
             <div>
-              <span className="text-lg font-bold text-stone-900 block">
-                {currentUser.followersCount}
+              <span className="text-lg font-bold text-stone-900 block font-mono">
+                {currentUser.batch || '2024'}
               </span>
-              <span className="text-xs text-stone-500">Followers</span>
+              <span className="text-xs text-stone-500 font-medium">Graduation Batch</span>
             </div>
             <div>
-              <span className="text-lg font-bold text-stone-900 block">
-                {currentUser.followingCount}
+              <span className="text-lg font-bold text-[#8B181B] block">
+                {currentUser.isVerified ? 'Official Verified' : 'Portal Member'}
               </span>
-              <span className="text-xs text-stone-500">Following</span>
+              <span className="text-xs text-stone-500 font-medium">Cecilian Standing</span>
             </div>
           </div>
 

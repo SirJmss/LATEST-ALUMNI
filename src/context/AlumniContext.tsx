@@ -24,6 +24,7 @@ import {
   CareerSurveyResponse,
   DatabaseBackupSnapshot,
   EventAttendee,
+  EventAttendanceRecord,
   RegistrarVerificationResult
 } from '../types';
 import {
@@ -177,6 +178,7 @@ interface AlumniContextType {
   toggleLikeEvent: (eventId: string) => void;
   addCommentToEvent: (eventId: string, text: string) => void;
   rsvpEvent: (eventId: string, status: 'going' | 'interested' | 'not_going') => void;
+  updateEventAttendance: (eventId: string, uid: string, status: 'attended' | 'not_attended' | 'pending') => void;
 
   // Announcements
   createAnnouncement: (data: Omit<Announcement, 'id' | 'publishedAt' | 'createdBy' | 'authorName' | 'authorRole'>) => void;
@@ -228,6 +230,11 @@ interface AlumniContextType {
   deleteAlumni: (uid: string) => Promise<boolean>;
   createChapter: (ch: Omit<Chapter, 'id'>) => void;
   createMilestone: (m: Omit<CareerMilestone, 'id'>) => void;
+  toggleLikeMilestone: (milestoneId: string) => void;
+  deleteMilestone: (milestoneId: string) => void;
+  isEmployerExpired: (user?: UserProfile | null) => boolean;
+  requestEmployerRenewal: (notes: string) => void;
+  renewEmployerAccount: (uid: string, extensionMonths?: number) => void;
 
   // Alumni Management Automations
   auditLogs: AuditLogEntry[];
@@ -1959,15 +1966,47 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return;
     }
 
+    const newEvtId = `evt_${Date.now()}`;
+    const eventChatId = `chat_event_${newEvtId}`;
+
+    // Step 2: System automatically creates a group chat with the event name
+    const eventGroupChat: ChatThread = {
+      id: eventChatId,
+      memberIds: [currentUser.uid],
+      lastMessage: `Official event group chat created for "${eventData.title}". Attendees will be automatically added when they RSVP.`,
+      lastMessageAt: new Date().toISOString(),
+      unreadCount: { [currentUser.uid]: 0 },
+      isGroupChat: true,
+      groupName: `${eventData.title} – Group Chat`,
+      groupDescription: `Official coordination chat for ${eventData.title}. Organized by ${currentUser.name}.`,
+      eventId: newEvtId,
+      isEventChat: true,
+      adminUids: [currentUser.uid]
+    };
+
     const newEvt: AlumniEvent = {
-      id: `evt_${Date.now()}`,
+      id: newEvtId,
       ...eventData,
+      groupChatId: eventChatId,
       likes: [],
       comments: [],
       attendeesCount: 1,
       createdBy: currentUser.uid,
-      createdByName: `${currentUser.name} (${currentUser.role.toUpperCase()})`
+      createdByName: `${currentUser.name} (${currentUser.role.toUpperCase()})`,
+      attendees: [
+        {
+          uid: currentUser.uid,
+          name: currentUser.name,
+          avatar: currentUser.profilePictureUrl,
+          role: currentUser.role,
+          status: 'going',
+          rsvpDate: new Date().toISOString()
+        }
+      ]
     };
+
+    setChats((prev) => [eventGroupChat, ...prev]);
+    saveChatToFirestore(eventGroupChat).catch(() => {});
 
     setEvents((prev) => [newEvt, ...prev]);
     saveEventToFirestore(newEvt).catch((err) => {
@@ -1977,16 +2016,16 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     // Broadcast notification to other users
     const broadcastNotif: AppNotification = {
       id: `notif_${Date.now()}`,
-      toUid: 'user_sarah_lin', // visible to alumni
+      toUid: 'all',
       type: 'event_broadcast',
       title: `New Event: ${newEvt.title}`,
-      body: `Organized by ${currentUser.name}. ${newEvt.isVirtual ? 'Virtual event' : newEvt.location}`,
+      body: `Organized by ${currentUser.name}. ${newEvt.isVirtual ? 'Virtual event' : newEvt.location}. RSVP now to join the official event group chat!`,
       refId: newEvt.id,
       read: false,
       createdAt: new Date().toISOString()
     };
     setNotifications((prev) => [broadcastNotif, ...prev]);
-    showToast('Event published successfully!');
+    showToast(`Event published and group chat "${eventGroupChat.groupName}" created!`);
   };
 
   const editEvent = (eventId: string, data: Partial<AlumniEvent>) => {
@@ -2227,16 +2266,67 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       saveNotificationToFirestore(oneDayBeforeNotif).catch(() => {});
       saveNotificationToFirestore(eventDayNotif).catch(() => {});
 
+      // Step 4: When a user RSVPs, automatically add them to the event's group chat
+      setChats((prevChats) => {
+        return prevChats.map((c) => {
+          if (c.eventId === eventId || c.id === targetEvent.groupChatId) {
+            if (!c.memberIds.includes(currentUser.uid)) {
+              const updatedChat: ChatThread = {
+                ...c,
+                memberIds: [...c.memberIds, currentUser.uid],
+                lastMessage: `${currentUser.name} joined the event group chat (${newStatus === 'going' ? 'Attending' : 'Interested'}).`,
+                lastMessageAt: new Date().toISOString()
+              };
+              saveChatToFirestore(updatedChat).catch(() => {});
+              return updatedChat;
+            }
+          }
+          return c;
+        });
+      });
+
+      // Group chat confirmation notification
+      const groupChatNotif: AppNotification = {
+        id: `notif_chat_added_${Date.now()}`,
+        toUid: currentUser.uid,
+        type: 'message',
+        title: 'Added to Event Group Chat',
+        body: `You have been automatically added to the official attendee group chat for "${targetEvent.title}". Open Messaging to connect with fellow attendees!`,
+        refId: targetEvent.groupChatId || eventId,
+        read: false,
+        createdAt: new Date().toISOString()
+      };
+      setNotifications((prev) => [groupChatNotif, ...prev]);
+
       addAuditLog({
         action: 'Event RSVP Registered',
         actorId: currentUser.uid,
         actorName: currentUser.name,
         actorRole: currentUser.role,
         category: 'communication',
-        details: `Alumnus confirmed RSVP (${newStatus}) for event: "${targetEvent.title}". 1-day before and event-day reminders active.`,
+        details: `Alumnus confirmed RSVP (${newStatus}) for event: "${targetEvent.title}". Added to event group chat.`,
         severity: 'info'
       });
     } else {
+      // Step 5: User cancelled RSVP: remove them from event group chat unless they are an admin
+      setChats((prevChats) => {
+        return prevChats.map((c) => {
+          if (c.eventId === eventId || c.id === targetEvent.groupChatId) {
+            if (c.memberIds.includes(currentUser.uid) && !c.adminUids?.includes(currentUser.uid)) {
+              const updatedChat: ChatThread = {
+                ...c,
+                memberIds: c.memberIds.filter((id) => id !== currentUser.uid),
+                lastMessage: `${currentUser.name} left the event group chat.`,
+                lastMessageAt: new Date().toISOString()
+              };
+              saveChatToFirestore(updatedChat).catch(() => {});
+              return updatedChat;
+            }
+          }
+          return c;
+        });
+      });
+
       // User cancelled attendance: clean up scheduled event notifications
       setNotifications((prev) =>
         prev.filter(
@@ -2252,7 +2342,7 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         actorName: currentUser.name,
         actorRole: currentUser.role,
         category: 'communication',
-        details: `Alumnus cancelled RSVP for event: "${targetEvent.title}".`,
+        details: `Alumnus cancelled RSVP for event: "${targetEvent.title}". Removed from event group chat.`,
         severity: 'info'
       });
     }
@@ -2264,7 +2354,7 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           showToast(`Attendance removed for "${targetEvent.title}"`, 'info');
         } else {
           showToast(
-            `RSVP confirmed: You are ${newStatus === 'going' ? 'attending' : 'interested in'} "${targetEvent.title}"!`,
+            `RSVP confirmed: You are ${newStatus === 'going' ? 'attending' : 'interested in'} "${targetEvent.title}" and added to the group chat!`,
             'success'
           );
         }
@@ -2273,6 +2363,42 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         console.warn('Failed to persist RSVP in Firestore:', err);
         showToast('Could not save RSVP to Firestore. Please check your connection.', 'error');
       });
+  };
+
+  const updateEventAttendance = (eventId: string, uid: string, status: 'attended' | 'not_attended' | 'pending') => {
+    if (!permissions.canCreateEvents && currentUser?.role !== 'admin' && currentUser?.role !== 'registrar') {
+      showToast('Permission denied: Only authorized administrators can record event attendance.', 'error');
+      return;
+    }
+    setEvents((prev) =>
+      prev.map((e) => {
+        if (e.id === eventId) {
+          const records = e.attendanceRecords || [];
+          const existingIdx = records.findIndex((r) => r.uid === uid);
+          const attendeeObj = e.attendees?.find((a) => a.uid === uid);
+          const attendeeName = attendeeObj?.name || users.find((u) => u.uid === uid)?.name || 'Alumnus';
+          const newRecord: EventAttendanceRecord = {
+            uid,
+            name: attendeeName,
+            status,
+            checkedInAt: status === 'attended' ? new Date().toISOString() : undefined,
+            updatedBy: currentUser?.name || 'Administrator'
+          };
+          let updatedRecords: EventAttendanceRecord[];
+          if (existingIdx >= 0) {
+            updatedRecords = [...records];
+            updatedRecords[existingIdx] = newRecord;
+          } else {
+            updatedRecords = [...records, newRecord];
+          }
+          const updated = { ...e, attendanceRecords: updatedRecords };
+          saveEventToFirestore(updated).catch(() => {});
+          return updated;
+        }
+        return e;
+      })
+    );
+    showToast(`Attendance marked as ${status.replace('_', ' ')}.`);
   };
 
   // Announcements operations
@@ -2887,14 +3013,221 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   const createMilestone = (m: Omit<CareerMilestone, 'id'>) => {
-    if (!permissions.canAccessAdminPanel) return;
+    const isAuthorized = permissions.canAccessAdminPanel || currentUser?.role === 'alumni' || currentUser?.role === 'staff';
+    if (!isAuthorized) {
+      showToast('Permission denied to publish milestones.');
+      return;
+    }
     const newM: CareerMilestone = {
       id: `m_${Date.now()}`,
+      authorId: currentUser?.uid,
+      authorName: currentUser?.name || 'Administrator',
+      authorRole: currentUser?.role,
+      createdAt: new Date().toISOString(),
+      likes: [],
       ...m
     };
     setMilestones((prev) => [newM, ...prev]);
-    showToast('Career milestone spotlight published!');
+
+    // Broadcast notification to all users
+    const notif: AppNotification = {
+      id: `notif_m_${Date.now()}`,
+      toUid: 'all',
+      type: 'announcement',
+      title: `New Milestone Spotlight: ${newM.title}`,
+      body: `${newM.authorName} published a spotlight in ${newM.category}: "${newM.title}". Check it out on the dashboard!`,
+      refId: newM.id,
+      read: false,
+      createdAt: new Date().toISOString()
+    };
+    setNotifications((prev) => [notif, ...prev]);
+    showToast('Milestone & gallery post published to dashboard feed!');
   };
+
+  const toggleLikeMilestone = (milestoneId: string) => {
+    if (!currentUser) return;
+    setMilestones((prev) =>
+      prev.map((m) => {
+        if (m.id === milestoneId) {
+          const currentLikes = m.likes || [];
+          const isLiked = currentLikes.includes(currentUser.uid);
+          const updatedLikes = isLiked
+            ? currentLikes.filter((uid) => uid !== currentUser.uid)
+            : [...currentLikes, currentUser.uid];
+          return { ...m, likes: updatedLikes };
+        }
+        return m;
+      })
+    );
+  };
+
+  const deleteMilestone = (milestoneId: string) => {
+    if (!permissions.canAccessAdminPanel && currentUser?.role !== 'admin') {
+      showToast('Permission denied to remove milestone post.');
+      return;
+    }
+    setMilestones((prev) => prev.filter((m) => m.id !== milestoneId));
+    showToast('Milestone post removed from feed.');
+  };
+
+  const isEmployerExpired = useCallback((user?: UserProfile | null): boolean => {
+    if (!user || user.role !== 'employer') return false;
+    if (user.employerStatus === 'expired') return true;
+    if (user.employerExpirationDate) {
+      return new Date(user.employerExpirationDate).getTime() < Date.now();
+    }
+    // Default active period: 365 days from user.createdAt or default 1 year
+    if (user.createdAt) {
+      const createdTime = new Date(user.createdAt).getTime();
+      const defaultExpiry = createdTime + 365 * 86400000;
+      return defaultExpiry < Date.now();
+    }
+    return false;
+  }, []);
+
+  const requestEmployerRenewal = useCallback((notes: string) => {
+    if (!currentUser || currentUser.role !== 'employer') return;
+    const updated = {
+      ...currentUser,
+      employerStatus: 'pending_renewal' as const,
+      employerRenewalRequested: true,
+      employerRenewalNotes: notes
+    };
+    updateProfile(updated);
+
+    // Notify administrators
+    const adminNotif: AppNotification = {
+      id: `notif_renew_req_${Date.now()}`,
+      toUid: 'all',
+      type: 'general',
+      title: 'Employer Accreditation Renewal Requested',
+      body: `Employer "${currentUser.companyName || currentUser.name}" submitted a renewal request: "${notes.slice(0, 80)}..."`,
+      refId: currentUser.uid,
+      read: false,
+      createdAt: new Date().toISOString()
+    };
+    setNotifications((prev) => [adminNotif, ...prev]);
+    showToast('Renewal request submitted for administrator review.');
+  }, [currentUser, updateProfile]);
+
+  const renewEmployerAccount = useCallback((uid: string, extensionMonths: number = 12) => {
+    const target = users.find((u) => u.uid === uid);
+    if (!target) return;
+    const currentExpiry = target.employerExpirationDate && new Date(target.employerExpirationDate).getTime() > Date.now()
+      ? new Date(target.employerExpirationDate).getTime()
+      : Date.now();
+    const newExpiry = new Date(currentExpiry + extensionMonths * 30 * 86400000).toISOString();
+
+    setUsers((prev) =>
+      prev.map((u) => {
+        if (u.uid === uid) {
+          return {
+            ...u,
+            employerStatus: 'active',
+            employerExpirationDate: newExpiry,
+            employerRenewalRequested: false,
+            employerRenewalNotes: undefined,
+            employerVerificationStatus: 'verified',
+            canPostJobs: true
+          };
+        }
+        return u;
+      })
+    );
+
+    const renewNotif: AppNotification = {
+      id: `notif_renew_${Date.now()}`,
+      toUid: uid,
+      type: 'security',
+      title: 'Accreditation Extended & Restored',
+      body: `Your partner account accreditation has been successfully extended for ${extensionMonths} months. Valid through ${new Date(newExpiry).toLocaleDateString()}.`,
+      refId: uid,
+      read: false,
+      createdAt: new Date().toISOString()
+    };
+    setNotifications((prev) => [renewNotif, ...prev]);
+    showToast(`Accreditation renewed for ${extensionMonths} months.`);
+  }, [users, currentUser]);
+
+  // Automated Employer Expiration Notification Reminders (30-day, 7-day, 1-day)
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== 'employer') return;
+
+    let expiryTimestamp: number | null = null;
+    if (currentUser.employerExpirationDate) {
+      expiryTimestamp = new Date(currentUser.employerExpirationDate).getTime();
+    } else if (currentUser.createdAt) {
+      expiryTimestamp = new Date(currentUser.createdAt).getTime() + 365 * 86400000;
+    }
+
+    if (!expiryTimestamp) return;
+
+    const msUntilExpiry = expiryTimestamp - Date.now();
+    const daysUntilExpiry = Math.ceil(msUntilExpiry / (86400000));
+    const existingNotifTitles = notifications.map((n) => n.title);
+
+    if (daysUntilExpiry <= 0) {
+      const expiredTitle = 'Account Accreditation Expired';
+      if (!existingNotifTitles.includes(expiredTitle)) {
+        const notif: AppNotification = {
+          id: `notif_exp_0_${Date.now()}`,
+          toUid: currentUser.uid,
+          type: 'security',
+          title: expiredTitle,
+          body: 'Your institutional partner accreditation has lapsed. Job posting privileges have been paused. Please submit an accreditation renewal request.',
+          refId: currentUser.uid,
+          read: false,
+          createdAt: new Date().toISOString()
+        };
+        setNotifications((prev) => [notif, ...prev]);
+      }
+    } else if (daysUntilExpiry <= 1) {
+      const oneDayTitle = 'Accreditation Expiry Warning (1 Day Remaining)';
+      if (!existingNotifTitles.includes(oneDayTitle)) {
+        const notif: AppNotification = {
+          id: `notif_exp_1_${Date.now()}`,
+          toUid: currentUser.uid,
+          type: 'security',
+          title: oneDayTitle,
+          body: 'Your employer accreditation expires tomorrow. Please request an extension to keep your job postings and applicant tracking active.',
+          refId: currentUser.uid,
+          read: false,
+          createdAt: new Date().toISOString()
+        };
+        setNotifications((prev) => [notif, ...prev]);
+      }
+    } else if (daysUntilExpiry <= 7) {
+      const sevenDayTitle = 'Accreditation Expiry Notice (7 Days Remaining)';
+      if (!existingNotifTitles.includes(sevenDayTitle)) {
+        const notif: AppNotification = {
+          id: `notif_exp_7_${Date.now()}`,
+          toUid: currentUser.uid,
+          type: 'security',
+          title: sevenDayTitle,
+          body: `Your partner account accreditation will expire in ${daysUntilExpiry} days. Please prepare your renewal documentation.`,
+          refId: currentUser.uid,
+          read: false,
+          createdAt: new Date().toISOString()
+        };
+        setNotifications((prev) => [notif, ...prev]);
+      }
+    } else if (daysUntilExpiry <= 30) {
+      const thirtyDayTitle = 'Accreditation Renewal Notice (30 Days Remaining)';
+      if (!existingNotifTitles.includes(thirtyDayTitle)) {
+        const notif: AppNotification = {
+          id: `notif_exp_30_${Date.now()}`,
+          toUid: currentUser.uid,
+          type: 'security',
+          title: thirtyDayTitle,
+          body: `Annual accreditation renewal notice: Your partner account is scheduled for expiration in ${daysUntilExpiry} days.`,
+          refId: currentUser.uid,
+          read: false,
+          createdAt: new Date().toISOString()
+        };
+        setNotifications((prev) => [notif, ...prev]);
+      }
+    }
+  }, [currentUser?.uid, currentUser?.employerExpirationDate, currentUser?.employerStatus]);
 
   const submitCareerSurvey = useCallback((survey: Omit<CareerSurveyResponse, 'id' | 'submittedAt'>) => {
     const newSurvey: CareerSurveyResponse = {
@@ -3189,6 +3522,7 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         toggleLikeEvent,
         addCommentToEvent,
         rsvpEvent,
+        updateEventAttendance,
         createAnnouncement,
         editAnnouncement,
         deleteAnnouncement,
@@ -3227,6 +3561,11 @@ export const AlumniProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         deleteAlumni,
         createChapter,
         createMilestone,
+        toggleLikeMilestone,
+        deleteMilestone,
+        isEmployerExpired,
+        requestEmployerRenewal,
+        renewEmployerAccount,
         auditLogs,
         automationJobs,
         careerSurveys,

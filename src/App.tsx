@@ -18,6 +18,7 @@ import { SettingsView } from './components/settings/SettingsView';
 import { AdminPanelView } from './components/admin/AdminPanelView';
 import { EmployerDashboardView } from './components/opportunities/EmployerDashboardView';
 import { PublicProfileModal } from './components/profile/PublicProfileModal';
+import { FirstTimeProfileSetupModal } from './components/profile/FirstTimeProfileSetupModal';
 import { AuthPage } from './components/auth/AuthPage';
 import { LandingPage } from './components/landing/LandingPage';
 import { ToastContainer } from './components/common/ToastContainer';
@@ -36,6 +37,21 @@ function AppContent() {
   });
   const [authViewMode, setAuthViewMode] = useState<'login' | 'register'>('login');
   const [authRole, setAuthRole] = useState<'alumni' | 'employer'>('alumni');
+  const [showProfileSetupModal, setShowProfileSetupModal] = useState(false);
+
+  React.useEffect(() => {
+    // Prioritize Profile Setup on first-time login
+    if (
+      currentUser &&
+      currentUser.role === 'alumni' &&
+      (!currentUser.isProfileSetupCompleted || !currentUser.currentPosition || !currentUser.company)
+    ) {
+      const dismissed = sessionStorage.getItem(`dismissed_setup_${currentUser.uid}`);
+      if (!dismissed) {
+        setShowProfileSetupModal(true);
+      }
+    }
+  }, [currentUser]);
 
   const handleLoginSuccess = (role?: string) => {
     setCurrentView('portal');
@@ -146,6 +162,17 @@ function AppContent() {
 
       {/* Public Profile Modal (Available anywhere in the app) */}
       <PublicProfileModal />
+
+      {/* Priority First-Time Profile Setup Modal */}
+      <FirstTimeProfileSetupModal
+        isOpen={showProfileSetupModal}
+        onClose={() => {
+          setShowProfileSetupModal(false);
+          if (currentUser) {
+            sessionStorage.setItem(`dismissed_setup_${currentUser.uid}`, 'true');
+          }
+        }}
+      />
 
       {/* Footer */}
       <footer className="bg-white border-t border-[#E5E7EB] py-8 mt-auto">

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   ChevronLeft,
+  ArrowLeft,
   Mail,
   Lock,
   Eye,
@@ -323,8 +324,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     }
   };
 
-  // Step 3: Terms & Agreement
+  // Step 3: Terms, Privacy & Zero Disclosure Agreement
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [agreedToPrivacyConsent, setAgreedToPrivacyConsent] = useState(false);
+  const [agreedToZeroDisclosure, setAgreedToZeroDisclosure] = useState(false);
   const [registrationComplete, setRegistrationComplete] = useState(false);
 
   // Password requirements validation
@@ -547,8 +550,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({
 
   // Step 3 Submit Registration (Strictly Alumni Role)
   const handleCompleteRegistration = () => {
-    if (!agreedToTerms) {
-      alert('Please affirm the Cecilian Alumni Honor Pledge to complete registration.');
+    if (!agreedToPrivacyConsent || !agreedToZeroDisclosure || !agreedToTerms) {
+      alert('Please confirm all required consents (Data Privacy Consent, Zero Disclosure Agreement, and Honor Pledge) to complete registration.');
       return;
     }
 
@@ -1139,38 +1142,19 @@ export const AuthPage: React.FC<AuthPageProps> = ({
               </div>
             ) : (
               <>
-                {/* ROLE SWITCHER TABS: ALUMNI VS EMPLOYER PARTNER (Only visible at initial entry / Step 1) */}
-                {(step === 1 || registrationType === 'employer') && (
-                  <div className="grid grid-cols-2 gap-1.5 p-1.5 bg-stone-200/80 rounded-2xl mb-5">
+                {/* If user navigated to Employer Registration, provide clean back link to Alumni Registration */}
+                {registrationType === 'employer' && (
+                  <div className="mb-4">
                     <button
                       type="button"
                       onClick={() => {
                         setRegistrationType('alumni');
                         setEmployerError('');
                       }}
-                      className={`py-2.5 px-3 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                        registrationType === 'alumni'
-                          ? 'bg-white text-stone-900 shadow-sm border border-stone-200/80'
-                          : 'text-stone-600 hover:text-stone-900'
-                      }`}
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-stone-500 hover:text-stone-900 transition-colors cursor-pointer"
                     >
-                      <GraduationCap className={`w-4 h-4 ${registrationType === 'alumni' ? 'text-[#8B181B]' : 'text-stone-400'}`} />
-                      <span>Alumni / Graduate</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setRegistrationType('employer');
-                        setScreeningError('');
-                      }}
-                      className={`py-2.5 px-3 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                        registrationType === 'employer'
-                          ? 'bg-white text-stone-900 shadow-sm border border-stone-200/80'
-                          : 'text-stone-600 hover:text-stone-900'
-                      }`}
-                    >
-                      <Building2 className={`w-4 h-4 ${registrationType === 'employer' ? 'text-[#8B181B]' : 'text-stone-400'}`} />
-                      <span>Employer / Partner</span>
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>Back to Alumni Registration</span>
                     </button>
                   </div>
                 )}
@@ -2042,6 +2026,76 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                       </div>
                     </div>
 
+                    {/* DATA PRIVACY ACT & CONSENT SECTION */}
+                    <div className="p-4 bg-stone-50 border border-stone-200 rounded-2xl mb-4 text-xs">
+                      <div className="flex items-center gap-2 mb-2 text-stone-900 font-bold">
+                        <Shield className="w-4 h-4 text-[#8B181B]" />
+                        <span>Data Privacy Act & Consent (RA 10173)</span>
+                      </div>
+                      <p className="text-stone-600 text-[11px] leading-relaxed mb-3">
+                        In compliance with Republic Act No. 10173 (Philippine Data Privacy Act of 2012), St. Cecilia’s College - Cebu, Inc. collects, stores, and securely processes your personal and educational information strictly for official institutional purposes, including:
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mb-3 text-[11px] text-stone-700">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#8B181B] shrink-0" />
+                          <span>Alumni record management & verification</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#8B181B] shrink-0" />
+                          <span>Official institutional communication</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#8B181B] shrink-0" />
+                          <span>Events, reunions & campus activities</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#8B181B] shrink-0" />
+                          <span>Graduate tracer studies (CHED reporting)</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#8B181B] shrink-0" />
+                          <span>Employment & professional tracking</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#8B181B] shrink-0" />
+                          <span>School & alumni-related announcements</span>
+                        </div>
+                      </div>
+                      <label className="flex items-start gap-2.5 pt-2 border-t border-stone-200 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={agreedToPrivacyConsent}
+                          onChange={(e) => setAgreedToPrivacyConsent(e.target.checked)}
+                          className="w-4 h-4 text-[#8B181B] rounded border-stone-300 mt-0.5 focus:ring-[#8B181B] accent-[#8B181B] cursor-pointer"
+                        />
+                        <span className="text-stone-800 font-semibold text-[11px] leading-relaxed">
+                          I consent to the collection, storage, and processing of my personal and academic data for the stated institutional alumni purposes.
+                        </span>
+                      </label>
+                    </div>
+
+                    {/* ZERO DISCLOSURE / CONFIDENTIALITY AGREEMENT */}
+                    <div className="p-4 bg-amber-50/60 border border-amber-200/80 rounded-2xl mb-4 text-xs">
+                      <div className="flex items-center gap-2 mb-2 text-stone-900 font-bold">
+                        <ShieldAlert className="w-4 h-4 text-amber-700" />
+                        <span>Zero Disclosure / Confidentiality Agreement</span>
+                      </div>
+                      <p className="text-stone-700 text-[11px] leading-relaxed mb-2.5">
+                        As a verified member of the Alumni Portal, you agree to treat all directory contacts, alumni profiles, and internal communications as confidential. You expressly pledge not to disclose, extract, sell, or distribute community information to third parties, commercial marketing entities, or automated web crawlers without written consent.
+                      </p>
+                      <label className="flex items-start gap-2.5 pt-2 border-t border-amber-200 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={agreedToZeroDisclosure}
+                          onChange={(e) => setAgreedToZeroDisclosure(e.target.checked)}
+                          className="w-4 h-4 text-[#8B181B] rounded border-stone-300 mt-0.5 focus:ring-[#8B181B] accent-[#8B181B] cursor-pointer"
+                        />
+                        <span className="text-stone-800 font-semibold text-[11px] leading-relaxed">
+                          I agree to the Zero Disclosure and Confidentiality Agreement and pledge to protect the privacy of fellow Cecilians.
+                        </span>
+                      </label>
+                    </div>
+
                     {/* Cecilian Alumni Honor Pledge Checkbox */}
                     <div className="flex items-start gap-2.5 p-3.5 bg-red-50/60 border border-red-200/80 rounded-xl mb-6">
                       <input
@@ -2067,10 +2121,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                       </button>
                       <button
                         type="button"
-                        disabled={!agreedToTerms}
+                        disabled={!agreedToTerms || !agreedToPrivacyConsent || !agreedToZeroDisclosure}
                         onClick={handleCompleteRegistration}
                         className={`flex-1 py-3.5 rounded-xl text-xs font-bold tracking-widest uppercase shadow-md transition-all ${
-                          agreedToTerms
+                          agreedToTerms && agreedToPrivacyConsent && agreedToZeroDisclosure
                             ? 'bg-[#8B181B] hover:bg-[#721316] text-white cursor-pointer shadow-red-950/20 hover:shadow-lg'
                             : 'bg-stone-300 text-stone-500 cursor-not-allowed'
                         }`}
